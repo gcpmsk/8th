@@ -59,6 +59,7 @@ body{overflow-x:hidden;}
 @keyframes titleTilt{0%,100%{transform:rotateX(0) rotateY(0);}25%{transform:rotateX(8deg) rotateY(-6deg);}75%{transform:rotateX(-6deg) rotateY(8deg);}}
 .home-tag{color:#9aa4b5;letter-spacing:4px;font-size:12px;font-weight:600;margin-top:2px;}
 .tile-grid{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;width:100%;max-width:980px;margin:38px auto 0;perspective:1200px;}
+.tile-8{background:linear-gradient(135deg,#fdcb6e,#b8860b);box-shadow:0 14px 28px -10px rgba(184,134,11,.6);}
 .tile{position:relative;border-radius:22px;padding:30px 10px 24px;text-align:center;color:#fff;cursor:pointer;border:none;
   transform-style:preserve-3d;transition:transform .35s cubic-bezier(.2,.9,.3,1.4), box-shadow .35s;
   animation:tileIn .7s cubic-bezier(.2,.9,.3,1.3) backwards;overflow:hidden;}
@@ -110,34 +111,41 @@ body{overflow-x:hidden;}
 .nb-tool.blue{background:linear-gradient(135deg,#48dbfb,#0984e3);}
 
 .notebook-wrap{position:relative;width:100%;max-width:1500px;z-index:2;perspective:1600px;}
-.notebook{position:relative;display:flex;background:#fff;border-radius:14px;
+.notebook{position:relative;display:flex;align-items:stretch;background:#fff;border-radius:14px;
   box-shadow:0 30px 70px -18px rgba(60,50,30,.4),0 4px 14px rgba(0,0,0,.12);
-  animation:bookOpen 1s cubic-bezier(.2,.85,.3,1.1);min-height:78vh;}
+  animation:bookOpen 1s cubic-bezier(.2,.85,.3,1.1);min-height:78vh;height:auto;}
 @keyframes bookOpen{from{opacity:0;transform:rotateX(28deg) translateY(70px) scale(.92);}to{opacity:1;transform:none;}}
-.nb-page{width:50%;position:relative;padding:14px 14px 60px;display:flex;flex-direction:column;background:
-  radial-gradient(circle at 12% 8%, #fffef9 0, #fdfbf4 60%, #f8f5ec 100%);}
+.nb-page{width:50%;position:relative;padding:14px 14px 40px;display:flex;flex-direction:column;background:
+  radial-gradient(circle at 12% 8%, #fffef9 0, #fdfbf4 60%, #f8f5ec 100%);height:auto;min-height:100%;}
 .nb-page.left{border-radius:14px 0 0 14px;box-shadow:inset -18px 0 30px -22px rgba(0,0,0,.28);}
 .nb-page.right{border-radius:0 14px 14px 0;box-shadow:inset 18px 0 30px -22px rgba(0,0,0,.28);}
 /* center spine */
 .nb-spine{position:absolute;left:50%;top:0;bottom:0;width:4px;transform:translateX(-50%);z-index:6;
   background:linear-gradient(to bottom,#b9ab8e,#8d7f63 50%,#b9ab8e);box-shadow:0 0 14px rgba(0,0,0,.35);}
-.spine-print-btn{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);z-index:8;
-  width:44px;height:44px;border-radius:50%;border:3px solid #fff;cursor:pointer;font-size:18px;color:#fff;
-  background:linear-gradient(135deg,#0984e3,#0652dd);box-shadow:0 8px 18px rgba(6,82,221,.5);transition:.3s;display:flex;align-items:center;justify-content:center;}
-.spine-print-btn:hover{transform:translate(-50%,-50%) scale(1.18) rotate(8deg);}
+/* IN/OUT HOME */
+.home-io-head{border-top:2.5px solid #333;display:flex;font-family:'Noto Sans Devanagari',sans-serif;font-weight:700;color:var(--red);font-size:clamp(11px,1.2vw,15px);}
+.home-io-head div{width:50%;text-align:center;padding:5px 0 2px;cursor:pointer;user-select:none;transition:.2s;}
+.home-io-head div:hover{background:rgba(192,57,43,.07);}
+.home-io-body{display:flex;min-height:110px;}
+.home-io-col{width:50%;padding:4px 8px;cursor:pointer;}
+.home-io-col:first-child{border-right:1.5px solid #bbb;}
+.io-amt{font-family:'Kalam',cursive;font-weight:700;font-size:clamp(13px,1.3vw,17px);padding:2px 4px;color:#14213d;}
+.io-amt .plus{color:#1e8449;margin-right:4px;}
+.io-sum{border-top:2px solid #14213d;font-family:'Kalam',cursive;font-weight:800;padding:2px 4px;color:#1e8449;}
 .nb-date{align-self:center;font-family:'Courier New',monospace;font-weight:bold;font-size:15px;letter-spacing:2px;color:#333;
   padding:4px 16px;cursor:pointer;user-select:none;border-radius:8px;transition:.2s;}
 .nb-date:hover{background:rgba(241,196,15,.18);}
 .nb-cols-head{display:flex;border-bottom:2.5px solid #222;margin-top:8px;}
 .nb-col-title{width:50%;text-align:center;padding:7px 4px;font-weight:700;color:var(--red);font-size:clamp(12px,1.35vw,17px);font-family:'Noto Sans Devanagari',sans-serif;position:relative;user-select:none;}
 .nb-col-title .head-amt{position:absolute;left:6px;top:50%;transform:translateY(-50%);color:#000;font-weight:800;font-size:clamp(12px,1.3vw,16px);font-family:'Kalam',cursive;border-bottom:2px solid #000;padding:0 4px;min-width:34px;text-align:center;}
-.nb-body{flex:1;display:flex;position:relative;}
+.nb-body{flex:1 0 auto;display:flex;align-items:stretch;position:relative;height:auto;}
 .nb-colline{position:absolute;left:50%;top:0;bottom:0;width:1.6px;background:#8d8d8d;transform:translateX(-50%);}
-.nb-col{width:50%;padding:6px 8px 6px 10px;cursor:pointer;position:relative;min-height:300px;}
+.nb-col{width:50%;padding:6px 8px 6px 10px;cursor:pointer;position:relative;min-height:300px;height:auto;overflow:visible;}
 .nb-col.right-col{padding-left:14px;}
 /* right page split: nagad naam top, kharch bottom */
-.nb-col-stack{width:50%;display:flex;flex-direction:column;cursor:default;}
-.nb-col-stack .nb-col{width:100%;min-height:180px;flex:1;}
+.nb-col-stack{width:50%;display:flex;flex-direction:column;cursor:default;height:auto;}
+.nb-col-stack .nb-col{width:100%;min-height:180px;flex:0 0 auto;}
+.nb-col-stack .nb-col:first-child{flex:1 0 auto;}
 .kharch-divider{border-top:2.5px solid #333;text-align:center;font-weight:700;color:var(--red);font-family:'Noto Sans Devanagari',sans-serif;
   padding:5px 0 2px;font-size:clamp(12px,1.3vw,16px);cursor:pointer;user-select:none;transition:.2s;}
 .kharch-divider:hover{background:rgba(192,57,43,.07);}
@@ -261,23 +269,73 @@ body{overflow-x:hidden;}
   .nb-col{min-height:220px;}
 }
 /* ============ PRINT (A4 one page) ============ */
+#print-stage{display:none;}
 @media print{
-  @page{size:A4 landscape;margin:6mm;}
-  body *{visibility:hidden;}
+  @page{size:A4 landscape;margin:5mm;}
+  body>*{display:none!important;}
   body{background:#fff!important;}
-  #notebook-screen{display:flex!important;padding:0;background:#fff!important;}
-  .notebook-wrap,.notebook-wrap *{visibility:visible;}
-  .bg-3d,.nb-topbar,.spine-print-btn,.edit-pencil{display:none!important;visibility:hidden!important;}
-  .notebook-wrap{position:absolute;left:0;top:0;width:100%;max-width:100%;}
-  .notebook{box-shadow:none;animation:none;min-height:auto;flex-direction:row!important;border:1px solid #999;
-    transform-origin:top left;height:190mm;overflow:hidden;}
-  .nb-page{width:50%!important;padding:8px 10px 20px;background:#fff!important;box-shadow:none!important;}
-  .hw-entry,.total-block{font-size:11.5px!important;}
-  .maal-entry{font-size:10.5px!important;}
-  .nb-col-title{font-size:12.5px!important;}
-  .nb-col{min-height:100px;}
-  body.print-plain .total-block, body.print-plain .grand-block{display:none!important;}
+  #print-stage{display:block!important;position:absolute;left:0;top:0;width:1077px;transform-origin:top left;transform:scale(var(--pscale,1));}
+  #print-stage .notebook{box-shadow:none;animation:none;min-height:auto;flex-direction:row!important;border:1px solid #999;border-radius:0;}
+  #print-stage .nb-page{width:50%!important;padding:8px 10px 20px;background:#fff!important;box-shadow:none!important;border-radius:0;}
+  #print-stage .hw-entry,#print-stage .total-block{font-size:11.5px!important;}
+  #print-stage .maal-entry{font-size:10.5px!important;}
+  #print-stage .nb-col-title{font-size:12.5px!important;}
+  #print-stage .nb-col{min-height:60px;}
+  #print-stage .edit-pencil{display:none!important;}
+  body.print-plain #print-stage .total-block, body.print-plain #print-stage .grand-block{display:none!important;}
 }
+/* receipt print */
+@media print{
+  body.receipt-mode #print-stage{display:none!important;}
+  body.receipt-mode #receipt-print{display:block!important;position:absolute;left:0;top:0;width:100%;}
+}
+#receipt-print{display:none;}
+.rcpt-paper{width:420px;margin:0 auto;border:2px solid #14213d;border-radius:10px;padding:16px 18px;font-family:'Poppins','Noto Sans Devanagari';background:#fff;}
+.rcpt-paper h2{text-align:center;letter-spacing:2px;background:linear-gradient(120deg,#b8860b,#ffd700,#8a6508);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.rcpt-paper .r-sub{text-align:center;font-size:11px;color:#888;letter-spacing:2px;margin-bottom:8px;}
+.rcpt-paper table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+.rcpt-paper th,.rcpt-paper td{border:1px solid #cbd3e0;padding:5px 7px;text-align:left;}
+.rcpt-paper .r-tot{font-weight:800;font-size:15px;}
+.rcpt-meta{display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;}
+
+/* record book */
+.rec-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;width:100%;max-width:900px;z-index:2;}
+.rec-date-card{background:#fff;border:2px solid #e6ebf2;border-radius:16px;padding:20px 10px;text-align:center;font-weight:700;cursor:pointer;transition:.25s;box-shadow:0 8px 18px -8px rgba(0,0,0,.15);font-size:16px;}
+.rec-date-card:hover{border-color:#f1c40f;transform:translateY(-4px) rotateX(8deg);}
+.rec-date-card small{display:block;color:#98a1b3;font-weight:500;font-size:11px;margin-top:4px;}
+#record-view-wrap{width:100%;max-width:1500px;perspective:1800px;z-index:2;}
+#record-view-wrap.flip .notebook{animation:pageFlip .7s cubic-bezier(.3,.7,.3,1);}
+@keyframes pageFlip{0%{transform:rotateY(-70deg) scale(.85);opacity:.2;}100%{transform:none;opacity:1;}}
+.rec-nav{display:flex;gap:10px;align-items:center;justify-content:center;margin:10px 0;z-index:2;flex-wrap:wrap;}
+#record-view-wrap .notebook{pointer-events:none;}
+
+/* ===== ATTENDANCE ===== */
+.att-topbar{width:100%;max-width:1100px;display:flex;align-items:center;justify-content:space-between;gap:10px;z-index:2;margin-bottom:10px;flex-wrap:wrap;}
+.att-date{font-family:'Courier New',monospace;font-weight:bold;font-size:clamp(15px,2.4vw,21px);letter-spacing:2px;color:#243447;padding:6px 18px;cursor:pointer;border-radius:10px;user-select:none;transition:.2s;background:#fff;border:2px solid #e6ebf2;box-shadow:0 6px 14px rgba(0,0,0,.07);}
+.att-date:hover{border-color:#f1c40f;}
+.att-actions{width:100%;max-width:1100px;display:flex;gap:10px;z-index:2;margin-bottom:12px;flex-wrap:wrap;}
+.att-wrap{width:100%;max-width:1100px;z-index:2;background:#fff;border-radius:18px;box-shadow:0 18px 40px -14px rgba(31,97,141,.25);border:1px solid #eef2f7;overflow:auto;max-height:72vh;animation:cardIn .6s;}
+.att-table{border-collapse:separate;border-spacing:0;min-width:100%;font-size:13px;}
+.att-table th,.att-table td{border-bottom:1px solid #edf1f6;border-right:1px solid #edf1f6;padding:6px 4px;text-align:center;white-space:nowrap;}
+.att-table thead th{position:sticky;top:0;background:linear-gradient(135deg,#243447,#3b4d63);color:#fff;font-weight:600;z-index:3;font-size:12px;padding:8px 4px;}
+.att-table .st-name{position:sticky;left:0;background:#fffdf5;font-weight:700;text-align:left;padding:6px 10px;z-index:2;min-width:130px;box-shadow:2px 0 6px -2px rgba(0,0,0,.12);font-family:'Noto Sans Devanagari';}
+.att-table thead .st-name{background:linear-gradient(135deg,#243447,#3b4d63);z-index:4;}
+.att-table .sr-no{background:#f6f8fb;font-weight:700;color:#8a94a6;}
+.att-cell{cursor:pointer;min-width:34px;transition:.15s;position:relative;}
+.att-cell:hover{background:#fff8e1;}
+.att-cell.today-col{background:#fffbea;box-shadow:inset 0 0 0 2px #f1c40f;}
+.att-cell.future{cursor:not-allowed;background:#fafbfc;color:#dfe4ea;}
+.att-mark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-weight:800;font-size:13px;animation:popMark .3s cubic-bezier(.2,.9,.3,1.4);}
+@keyframes popMark{from{transform:scale(0);}to{transform:scale(1);}}
+.att-mark.p{background:linear-gradient(135deg,#2ecc71,#1e8449);color:#fff;box-shadow:0 3px 8px -2px rgba(30,132,73,.6);}
+.att-mark.x{background:linear-gradient(135deg,#ff7675,#c0392b);color:#fff;box-shadow:0 3px 8px -2px rgba(192,57,43,.6);}
+.att-mark.late{box-shadow:0 0 0 2.5px #e11d48;background:#e11d48!important;}
+th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
+.att-del{color:#e74c3c;cursor:pointer;font-size:12px;margin-left:6px;opacity:.6;}
+.att-del:hover{opacity:1;}
+.att-legend{display:flex;gap:16px;font-size:12px;color:#66748c;padding:8px 12px;align-items:center;flex-wrap:wrap;}
+#print-stage .att-table th,#print-stage .att-table td{border:1px solid #999;}
+#print-stage .att-title{font-weight:800;font-size:20px;text-align:center;padding:8px;letter-spacing:2px;}
 </style>
 </head>
 <body>
@@ -306,6 +364,7 @@ body{overflow-x:hidden;}
   <div class="tile-grid">
     <button class="tile tile-1" data-go="notebook"><span class="t-ico">📔</span><span class="t-name">Notebook</span></button>
     <button class="tile tile-2" data-go="sbook"><span class="t-ico">📚</span><span class="t-name">S.Book</span></button>
+    <button class="tile tile-8" data-go="recordbook"><span class="t-ico">📖</span><span class="t-name">Record Book</span></button>
     <button class="tile tile-3" data-go="printhome"><span class="t-ico">🖨️</span><span class="t-name">Print</span></button>
     <button class="tile tile-4" data-go="orderbook"><span class="t-ico">🧾</span><span class="t-name">Order Book</span></button>
     <button class="tile tile-5" data-go="attendance"><span class="t-ico">🗓️</span><span class="t-name">Attendance</span></button>
@@ -320,17 +379,14 @@ body{overflow-x:hidden;}
   <div class="nb-topbar">
     <div class="left-tools">
       <button class="nb-tool grey" id="nb-back">← Home</button>
-      <button class="nb-tool blue" id="nb-print-quick">🖨️ Print</button>
     </div>
     <div class="right-tools">
-      <button class="nb-tool gold" id="nb-clear-total">✖ Total हटाएँ</button>
       <button class="nb-tool green" id="nb-total-btn">Σ TOTAL</button>
     </div>
   </div>
   <div class="notebook-wrap">
     <div class="notebook" id="notebook">
       <div class="nb-spine"></div>
-      <button class="spine-print-btn" id="spine-print" title="Print">🖨</button>
       <!-- LEFT PAGE -->
       <div class="nb-page left">
         <div class="nb-date" id="nb-date-l" title="3 बार click = Print">21-07-2026</div>
@@ -353,7 +409,11 @@ body{overflow-x:hidden;}
         </div>
         <div class="nb-body">
           <div class="nb-colline"></div>
-          <div class="nb-col" id="col-maal"></div>
+          <div class="nb-col-stack" style="cursor:default;">
+            <div class="nb-col" id="col-maal" style="width:100%;"></div>
+            <div class="home-io-head"><div id="inhome-head">IN HOME</div><div id="outhome-head">OUT HOME</div></div>
+            <div class="home-io-body"><div class="home-io-col" id="col-inhome"></div><div class="home-io-col" id="col-outhome"></div></div>
+          </div>
           <div class="nb-col-stack">
             <div class="nb-col right-col" id="col-nagad"></div>
             <div class="kharch-divider" id="kharch-head" title="2 बार click = Rate Settings">नगद खर्च</div>
@@ -368,13 +428,42 @@ body{overflow-x:hidden;}
 <!-- OTHER SCREENS -->
 <div class="screen sub-screen" id="sbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📚 S.Book</div></div><div class="placeholder-card"><span class="big-ico">📚</span><h3>Special Book</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
 <div class="screen sub-screen" id="orderbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">🧾 Order Book</div></div><div class="placeholder-card"><span class="big-ico">🧾</span><h3>Order Book</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
-<div class="screen sub-screen" id="attendance-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">🗓️ Attendance</div></div><div class="placeholder-card"><span class="big-ico">🗓️</span><h3>Attendance</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
+<div class="screen sub-screen" id="attendance-screen">
+  <div class="att-topbar">
+    <button class="nb-tool grey" data-go="home">🏠 Home</button>
+    <div class="att-date" id="att-date" title="3 बार click = Print">--</div>
+    <button class="nb-tool gold" id="att-add-name">➕ Add Name</button>
+  </div>
+  <div class="att-actions">
+    <button class="nb-tool green" id="att-all-p">✅ आज सब P</button>
+    <button class="nb-tool blue" id="att-submit">✔ Final Submit</button>
+  </div>
+  <div class="att-wrap" id="att-wrap"></div>
+</div>
 <div class="screen sub-screen" id="call-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📞 Call</div></div><div class="placeholder-card"><span class="big-ico">📞</span><h3>Quick Call</h3><p style="margin-bottom:16px;">ज़रूरी नंबर पर call करें</p><a href="tel:9631816666" style="display:inline-block;padding:14px 34px;background:linear-gradient(135deg,#2ecc71,#1e8449);color:#fff;border-radius:14px;font-weight:700;text-decoration:none;font-size:17px;">📞 Office Call</a></div></div>
 <div class="screen sub-screen" id="emergency-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">🚨 Emergency</div></div><div class="placeholder-card" style="border:2px solid #ffd0d0;"><span class="big-ico">🚨</span><h3 style="color:#d63031;">Emergency</h3><p style="margin-bottom:16px;">आपातकालीन नंबर</p><div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;"><a href="tel:112" style="padding:13px 26px;background:#d63031;color:#fff;border-radius:12px;font-weight:700;text-decoration:none;">🚓 112</a><a href="tel:101" style="padding:13px 26px;background:#e67e22;color:#fff;border-radius:12px;font-weight:700;text-decoration:none;">🚒 101</a><a href="tel:108" style="padding:13px 26px;background:#0984e3;color:#fff;border-radius:12px;font-weight:700;text-decoration:none;">🚑 108</a></div></div></div>
+<div class="screen sub-screen" id="recordbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📖 Record Book</div></div>
+  <div class="print-choice" style="max-width:560px;width:94%;z-index:2;">
+    <button id="rec-choose-nb"><span class="pc-ico">📔</span>Notebook<br><small style="color:#8a94a6">Daily बही-खाता</small></button>
+    <button id="rec-choose-sb"><span class="pc-ico">📚</span>S.Book<br><small style="color:#8a94a6">Special Book</small></button>
+    <button id="rec-choose-att"><span class="pc-ico">🗓️</span>Attendance<br><small style="color:#8a94a6">पिछले महीने</small></button>
+  </div></div>
+<div class="screen sub-screen" id="recorddates-screen"><div class="sub-head"><button class="back-btn" data-go="recordbook">← Back</button><div class="sub-title" id="rec-dates-title">📅 तारीख़ चुनें</div></div><div class="rec-list" id="rec-dates-list"></div></div>
+<div class="screen sub-screen" id="recordview-screen">
+  <div class="sub-head"><button class="back-btn" data-go="recorddates">← Dates</button><div class="sub-title" id="rec-view-title"></div></div>
+  <div class="rec-nav">
+    <button class="nb-tool grey" id="rec-prev">⬅ पिछला दिन</button>
+    <button class="nb-tool gold" id="rec-print">🖨️ Print</button>
+    <button class="nb-tool grey" id="rec-next">अगला दिन ➡</button>
+  </div>
+  <div id="record-view-wrap"></div>
+</div>
 <div class="screen sub-screen" id="chatai-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">💬 Chat AI</div></div><div class="placeholder-card"><span class="big-ico">🤖</span><h3>Chat AI Assistant</h3><p>AI सहायक जल्द आ रहा है… (Coming Soon)</p></div></div>
 
 <div id="toast"></div>
 <div id="popups-root"></div>
+<div id="print-stage"></div>
+<div id="receipt-print"></div>
 <script src="app.js"></script>
 </body>
 </html>
