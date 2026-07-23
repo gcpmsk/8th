@@ -33,7 +33,10 @@ document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');
   if(g){ const t=g.dataset.go; if(t==='printhome'){ go('notebook'); setTimeout(openPrintChoice,350); } else go(t); }
 });
-$('#nb-back').addEventListener('click',()=>go('home'));
+$('#nb-back').addEventListener('click',()=>{
+  if(CUR_DATE!==DATE){ exitEditDate(); renderAll(); toast('आज की तारीख़ पर वापस ✔'); }
+  else go('home');
+});
 
 /* ---------- login ---------- */
 $('#login-form').addEventListener('submit',e=>{
@@ -44,18 +47,26 @@ $('#login-form').addEventListener('submit',e=>{
 
 /* ---------- state / storage ---------- */
 const DATE = todayStr();
-let CUR_DATE = DATE;           // date being rendered
-const KEY = 'sg_nb_'+DATE;
+let CUR_DATE = DATE;           // date being rendered / edited
+let KEY = 'sg_nb_'+DATE;
 let DB = load();
 migrate(DB);
+let RECORD_EDIT = false;       // record-book back-date edit mode
 function load(){ try{ return JSON.parse(localStorage.getItem(KEY))||blank(); }catch(e){ return blank(); } }
+function blankRaw(){ return {opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null}; }
 function blank(){
-  const b={opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null};
+  const b=blankRaw();
   try{ const c=JSON.parse(localStorage.getItem('sg_carry')||'null');
     if(c && c.date!==DATE && c.amount!==null && c.amount!==undefined){ b.opening=c.amount; localStorage.removeItem('sg_carry'); }
   }catch(e){}
   return b;
 }
+/* back-date edit context */
+function enterEditDate(d){ CUR_DATE=d; KEY='sg_nb_'+d; try{ DB=JSON.parse(localStorage.getItem(KEY))||blankRaw(); }catch(e){ DB=blankRaw(); } migrate(DB); }
+function exitEditDate(){ CUR_DATE=DATE; KEY='sg_nb_'+DATE; DB=load(); migrate(DB); }
+/* edit stamp — जब भी कोई entry edit हो: समय (+ तारीख़ अगर back-date) + highlight */
+function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : ''; }
+function editTag(r){ return r.edited? `<span class="ets">✎ ${r.ets}${r.edate?(' · '+r.edate):''}</span>`:''; }
 function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null; }
 function save(){ localStorage.setItem(KEY,JSON.stringify(DB)); }
 
@@ -171,7 +182,7 @@ function openRokad(editIdx=null){
         if(!collect())return;
         if(!rokadCart.length){ toast('कोई item नहीं जोड़ा गया'); return; }
         const total=rokadCart.reduce((a,x)=>a+x.total,0), cash=rokadCart.reduce((a,x)=>a+x.cash,0), online=rokadCart.reduce((a,x)=>a+x.online,0);
-        if(editIdx!==null){ Object.assign(DB.rokad[editIdx],{items:rokadCart,total,cash,online}); }
+        if(editIdx!==null){ Object.assign(DB.rokad[editIdx],{items:rokadCart,total,cash,online}); stampEdit(DB.rokad[editIdx]); }
         else DB.rokad.push({items:rokadCart,total,cash,online,ts:nowTS(),cut:false});
         save(); closePopup(); renderAll();
         if(DB.opening===null) setTimeout(openOpening,250);
@@ -212,8 +223,8 @@ function openJama(editIdx=null){
         const name=bk.querySelector('#jm-name').value.trim(), amt=parseFloat(bk.querySelector('#jm-amt').value)||0;
         if(!name||amt<=0){ toast('नाम और Amount भरें'); return; }
         const online = segVal(bk)==='online' ? amt : 0;
-        const rec={name,address:bk.querySelector('#jm-addr').value.trim(),amount:amt,online,ts:e.ts||nowTS(),cut:e.cut||false};
-        if(editIdx!==null) DB.jama[editIdx]=rec; else DB.jama.push(rec);
+        const rec={name,address:bk.querySelector('#jm-addr').value.trim(),amount:amt,online,ts:e.ts||nowTS(),cut:e.cut||false,edited:e.edited,ets:e.ets,edate:e.edate};
+        if(editIdx!==null){ stampEdit(rec); DB.jama[editIdx]=rec; } else DB.jama.push(rec);
         save(); closePopup(); renderAll();
       });
     }
@@ -233,7 +244,7 @@ function openMaal(editIdx=null){
       <div class="f-row"><label>Type</label><div class="pay-seg" id="ml-kind"><div class="seg ${kind==='rst'?'sel':''}" data-v="rst">⚖️ RST</div><div class="seg ${kind==='fill'?'sel':''}" data-v="fill">📦 FILL</div></div></div>
       <div class="f-row"><label>नाम (Name)</label><input type="text" id="ml-name" value="${e.name||''}"></div>
       <div class="f-row"><label>पता (Address)</label><input type="text" id="ml-addr" value="${e.address||''}"></div>
-      <div class="f-row"><label>Total बोरा (Pic)</label><input type="number" id="ml-pic" inputmode="numeric" value="${e.pic??''}"></div>
+      <div class="f-row" id="ml-pic-row" style="display:${kind==='fill'?'none':'flex'};"><label>Total बोरा (Pic)</label><input type="number" id="ml-pic" inputmode="numeric" value="${e.pic??''}"></div>
       <div class="f-row"><label>Dust (D)</label><input type="number" id="ml-dust" inputmode="numeric" placeholder="0" value="${e.dust??''}"></div>
       <div class="f-row"><label>Plastic बोरा (P)</label><input type="number" id="ml-plastic" inputmode="numeric" placeholder="0" value="${e.plastic??''}"></div>
       <hr style="border:none;border-top:1.5px dashed #dde3ec;margin:8px 0 12px;">
@@ -244,9 +255,10 @@ function openMaal(editIdx=null){
         <div class="f-row"><label>Nett Weight</label><input type="number" id="ml-nett" inputmode="decimal" placeholder="बाद में" value="${e.nett??''}"></div>
       </div>
       <div id="ml-fill-fields" style="display:${kind==='fill'?'block':'none'};">
-        <div class="pp-note">बोरा weight series में लिखें — comma से (जैसे: 5,30,45,20)</div>
+        <div class="pp-note">बोरा weight series में लिखें — comma से (जैसे: 5,30,45,20) — बोरा count अपने आप 🪄</div>
         <div class="f-row"><label>Weights (kg)</label><input type="text" id="ml-weights" inputmode="decimal" placeholder="5,30,45,20" value="${(e.weights||[]).join(',')}"></div>
         <div class="f-row"><label>Total KG</label><div class="ro" id="ml-fill-total">${e.fillTotal?fmt(e.fillTotal)+' kg':'0 kg'}</div></div>
+        <div class="f-row"><label>Total बोरा (Pic)</label><div class="ro" id="ml-fill-pic">${(e.weights||[]).length||0} बोरा (auto)</div></div>
       </div>
       <div class="f-row"><label>Rate (सौदा)</label><input type="number" id="ml-rate" inputmode="decimal" placeholder="बाद में summit" value="${e.rate??''}"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ml-save">✓ Save</button></div>`,
@@ -259,14 +271,18 @@ function openMaal(editIdx=null){
         curKind=s.dataset.v;
         g('ml-rst-fields').style.display = curKind==='rst'?'block':'none';
         g('ml-fill-fields').style.display = curKind==='fill'?'block':'none';
+        g('ml-pic-row').style.display = curKind==='fill'?'none':'flex';
       });
       const autoNett=()=>{ const gr=parseFloat(g('ml-gross').value), tr=parseFloat(g('ml-tare').value); if(!isNaN(gr)&&!isNaN(tr)&&g('ml-nett').value==='') g('ml-nett').value=(gr-tr); };
       g('ml-gross').addEventListener('change',autoNett); g('ml-tare').addEventListener('change',autoNett);
       const parseWeights=()=>g('ml-weights').value.split(/[,\s]+/).map(x=>parseFloat(x)).filter(x=>!isNaN(x)&&x>0);
-      g('ml-weights').addEventListener('input',()=>{ const w=parseWeights(); g('ml-fill-total').textContent=fmt(w.reduce((a,x)=>a+x,0))+' kg'; });
+      g('ml-weights').addEventListener('input',()=>{ const w=parseWeights(); g('ml-fill-total').textContent=fmt(w.reduce((a,x)=>a+x,0))+' kg'; g('ml-fill-pic').textContent=w.length+' बोरा (auto)'; });
       g('ml-save').addEventListener('click',()=>{
-        const name=g('ml-name').value.trim(), pic=parseFloat(g('ml-pic').value);
-        if(!name||!(pic>0)){ toast('नाम और Total बोरा भरें'); return; }
+        const name=g('ml-name').value.trim();
+        let pic = curKind==='fill' ? parseWeights().length : parseFloat(g('ml-pic').value);
+        if(!name){ toast('नाम भरें'); return; }
+        if(curKind!=='fill' && !(pic>0)){ toast('Total बोरा भरें'); return; }
+        if(curKind==='fill' && !(pic>0)){ toast('Weights भरें — बोरा count अपने आप होगा'); return; }
         const num=id=>{ const v=g(id).value.trim(); return v===''?null:parseFloat(v); };
         const rec={serial,kind:curKind,name,address:g('ml-addr').value.trim(),pic,
           dust:num('ml-dust')??0,plastic:num('ml-plastic')??0,rate:num('ml-rate'),
@@ -276,7 +292,7 @@ function openMaal(editIdx=null){
         }else{
           const w=parseWeights(); rec.weights=w; rec.fillTotal=w.reduce((a,x)=>a+x,0);
         }
-        if(editIdx!==null) DB.maal[editIdx]=rec; else DB.maal.push(rec);
+        if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.maal[editIdx]=rec; } else DB.maal.push(rec);
         save(); closePopup(); renderAll();
       });
     }
@@ -312,7 +328,7 @@ function openNagad(editIdx=null){
           serialRef:parseInt(bk.querySelector('#ng-serial').value)||null,
           mode:segVal(bk)||'cash', item:bk.querySelector('#ng-item').value||'',
           ts:e.ts||nowTS(),cut:e.cut||false};
-        if(editIdx!==null) DB.nagad[editIdx]=rec; else DB.nagad.push(rec);
+        if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.nagad[editIdx]=rec; } else DB.nagad.push(rec);
         save(); closePopup(); renderAll();
       });
     }
@@ -419,7 +435,7 @@ function openKharch(editIdx=null){
           }
         }
         rec.ts=e?e.ts:nowTS(); rec.cut=e?e.cut:false;
-        if(editIdx!==null) DB.kharch[editIdx]=rec; else DB.kharch.push(rec);
+        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else DB.kharch.push(rec);
         save(); closePopup(); renderAll();
       });
       if(e){ typeSel.value=e.type==='van'?'van':'mill'; typeSel.dispatchEvent(new Event('change')); }
@@ -443,7 +459,7 @@ function openPendingFill(idx){
         const amt=parseFloat(bk.querySelector('#pf-amt').value)||0;
         if(amt<=0){ toast('अमाउंट भरें'); return; }
         e.name=bk.querySelector('#pf-name').value.trim()||e.name;
-        e.amount=amt; e.pending=false;
+        e.amount=amt; e.pending=false; stampEdit(e);
         save(); closePopup(); renderAll(); toast('Exact खर्च save ✔');
       });
     }
@@ -497,7 +513,7 @@ function openLabour(editIdx=null){
         if(!labour.length){ toast('कुछ भरें'); return; }
         const total=labour.reduce((a,x)=>a+x.amt,0);
         const rec={type:'labour',name:'Labour',amount:total,labour,ts:e?e.ts:nowTS(),cut:e?e.cut:false};
-        if(editIdx!==null) DB.kharch[editIdx]=rec; else DB.kharch.push(rec);
+        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else DB.kharch.push(rec);
         save(); closePopup(); renderAll();
       });
     }
@@ -576,59 +592,62 @@ function buildRokad(db,live){
       const km = it.km? '(km)' : '';
       return `<div><span class="amt">${fmt(it.total)}</span>${esc(it.item)} ${esc(v)} ${it.qty}×${fmt(it.price)}${km}${pay}</div>`;
     }).join('');
-    return `<div class="hw-entry ${r.cut?'cut':''} ${r.online>0&&r.cash===0?'is-ac':''}" data-sec="rokad" data-i="${i}">${lines}<span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="rokad" data-i="${i}">✏️</span>`:''}</div>`;
-  }).join('') || (live?`<div style="color:#c3cad6;font-family:'Kalam';padding:14px 4px;">यहाँ click करें → बिक्री entry…</div>`:'');
+    return `<div class="hw-entry ${r.cut?'cut':''} ${r.edited?'edited':''} ${r.online>0&&r.cash===0?'is-ac':''}" data-sec="rokad" data-i="${i}">${lines}<span class="ts">${r.ts}</span>${editTag(r)}</div>`;
+  }).join('') + (live?`<div class="add-strip" data-add="rokad">+ नयी बिक्री entry</div>`:'');
 }
 function buildJama(db,live){
   return db.jama.map((r,i)=>
-    `<div class="hw-entry ${r.cut?'cut':''} ${r.online>0?'is-ac':''}" data-sec="jama" data-i="${i}">
+    `<div class="hw-entry ${r.cut?'cut':''} ${r.edited?'edited':''} ${r.online>0?'is-ac':''}" data-sec="jama" data-i="${i}">
       <span class="amt">${fmt(r.amount)}</span>${esc(r.name)}${r.address?` <small>(${esc(r.address)})</small>`:''}${r.online>0?` <span class="ac-mark">A/C</span>`:''}
-      <span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="jama" data-i="${i}">✏️</span>`:''}</div>`
-  ).join('') || (live?`<div style="color:#c3cad6;font-family:'Kalam';padding:14px 4px;">यहाँ click करें → जमा entry…</div>`:'');
+      <span class="ts">${r.ts}</span>${editTag(r)}</div>`
+  ).join('') + (live?`<div class="add-strip" data-add="jama">+ नयी जमा entry</div>`:'');
 }
 function buildMaal(db,live){
   return db.maal.map((r,i)=>{
     const w=(v,lbl)=>`<span class="m-lbl">${lbl}</span>-${v===null||v===undefined?'<span style="color:#b6bcc9">—</span>':fmt(v)}`;
     let mid='';
     if((r.kind||'rst')==='rst'){
-      mid=`<div class="m-line">${r.rst?`<span class="m-lbl">RST</span>-${esc(r.rst)} &nbsp; `:''}${w(r.gross,'GROSS')} &nbsp; ${w(r.tare,'TARE')}</div>
-           <div class="m-line">${w(r.nett,'NETT')}</div>`;
+      mid=`<div class="m-line">${r.rst?`<span class="m-lbl">RST</span>-${esc(r.rst)} &nbsp; `:''}${w(r.gross,'GROSS')}</div>
+           <div class="m-line">${w(r.tare,'TARE')} &nbsp; ${w(r.nett,'NETT')}</div>`;
     }else{
-      const series=(r.weights&&r.weights.length)? r.weights.map(x=>fmt(x)+'kg').join(', ') : '<span style="color:#b6bcc9">—</span>';
-      mid=`<div class="m-line fill-box"><span class="m-lbl">FILL</span> [ ${series} ] → <b>${r.fillTotal?fmt(r.fillTotal)+'kg':'—'}</b></div>`;
+      const chips=(r.weights&&r.weights.length)? r.weights.map(x=>`<span class="fill-chip">${fmt(x)}kg</span>`).join('') : '<span style="color:#b6bcc9">—</span>';
+      const cnt=(r.weights&&r.weights.length)||0;
+      mid=`<div class="fill-wrap"><span class="fill-tag">FILL</span>${chips}<span class="fill-cnt">📦 ${cnt} बोरा</span><span class="fill-sum">= ${r.fillTotal?fmt(r.fillTotal)+' kg':'—'}</span></div>`;
     }
-    return `<div class="hw-entry maal-entry ${r.cut?'cut':''}" data-sec="maal" data-i="${i}">
+    const isFill=(r.kind||'rst')==='fill';
+    const picShow = isFill ? ((r.weights&&r.weights.length)||0) : r.pic;
+    return `<div class="hw-entry maal-entry ${r.cut?'cut':''} ${r.edited?'edited':''}" data-sec="maal" data-i="${i}">
       <div class="m-top">
         <div class="m-left">
           <div class="m-name"><span class="maal-serial">${r.serial}</span>${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>
           ${mid}
         </div>
-        <div class="maal-badge"><span class="dp">D&nbsp;&nbsp;P</span>${r.pic} = ${r.dust}/${r.plastic}</div>
+        <div class="maal-badge"><span class="dp">D&nbsp;&nbsp;P</span>${picShow} = ${r.dust}/${r.plastic}</div>
         <div class="maal-rate ${r.rate===null||r.rate===undefined?'empty':''}">RATE-${r.rate===null||r.rate===undefined?'?':fmt(r.rate)}</div>
       </div>
-      <span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="maal" data-i="${i}">✏️</span>`:''}</div>`;
-  }).join('') || (live?`<div style="color:#c3cad6;font-family:'Kalam';padding:14px 4px;">यहाँ click करें → माल आवत entry…</div>`:'');
+      <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
+  }).join('') + (live?`<div class="add-strip" data-add="maal">+ नयी माल आवत entry</div>`:'') + buildIOCard(db,live);
 }
 function buildNagad(db,live){
   const modeTag={cash:'',online:' <span class="ac-mark">A/C</span>',home:' <b>(Home)</b>',counter:' (Con-ter)'};
   return db.nagad.map((r,i)=>
-    `<div class="hw-entry ${r.cut?'cut':''} ${r.mode==='online'?'is-ac':''} ${r.mode==='home'?'is-home':''}" data-sec="nagad" data-i="${i}">
+    `<div class="hw-entry ${r.cut?'cut':''} ${r.edited?'edited':''} ${r.mode==='online'?'is-ac':''} ${r.mode==='home'?'is-home':''}" data-sec="nagad" data-i="${i}">
       <span class="amt">${fmt(r.amount)}</span>${esc(r.name)}${r.address?` <small>(${esc(r.address)})</small>`:''}${r.item?` — ${esc(r.item)}`:''}${modeTag[r.mode]||''}
-      <span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="nagad" data-i="${i}">✏️</span>`:''}</div>`
-  ).join('') || (live?`<div style="color:#c3cad6;font-family:'Kalam';padding:14px 4px;">यहाँ click करें → नगद नाम entry…</div>`:'');
+      <span class="ts">${r.ts}</span>${editTag(r)}</div>`
+  ).join('') + (live?`<div class="add-strip" data-add="nagad">+ नयी नगद नाम entry</div>`:'');
 }
 function buildKharch(db,live){
   return db.kharch.map((r,i)=>{
     if(r.type==='labour'){
-      return `<div class="hw-entry labour-entry ${r.cut?'cut':''}" data-sec="kharch" data-i="${i}">
+      return `<div class="hw-entry labour-entry ${r.cut?'cut':''} ${r.edited?'edited':''}" data-sec="kharch" data-i="${i}">
         <div class="lab-head"><span class="lab-total amt">${fmt(r.amount)}</span> Labour</div>
         <div class="branches">${r.labour.map(l=>`<div><span class="b-amt">${fmt(l.amt)}</span>${esc(l.short)}${l.qty?` (${l.qty})`:''}</div>`).join('')}</div>
-        <span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="kharch" data-i="${i}">✏️</span>`:''}</div>`;
+        <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
     }
-    return `<div class="hw-entry ${r.cut?'cut':''} ${r.pending?'pending-kharch':''}" data-sec="kharch" data-i="${i}">
+    return `<div class="hw-entry ${r.cut?'cut':''} ${r.edited?'edited':''} ${r.pending?'pending-kharch':''}" data-sec="kharch" data-i="${i}">
       <span class="amt">${fmt(r.amount)}</span>${esc(r.name)}${r.pending?'<span class="pending-tag">Exact बाद में ⏳</span>':''}
-      <span class="ts">${r.ts}</span>${live?`<span class="edit-pencil" data-edit="kharch" data-i="${i}">✏️</span>`:''}</div>`;
-  }).join('') || (live?`<div style="color:#c3cad6;font-family:'Kalam';padding:10px 4px;">यहाँ click करें → खर्च entry…</div>`:'');
+      <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
+  }).join('') + (live?`<div class="add-strip" data-add="kharch">+ नयी खर्च entry</div>`:'');
 }
 function buildInHome(db,live){
   const rows=(db.inhome||[]).map((a,i)=>`<div class="io-amt" data-io="in" data-i="${i}"><span class="plus">${i>0?'+':''}</span>${fmt(a.amount)} <span class="ts">${a.ts}</span></div>`).join('');
@@ -639,17 +658,27 @@ function buildOutHome(db,live){
   if(db.outhome===null||db.outhome===undefined) return (live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर ले गया ₹…</div>`:'');
   return `<div class="io-amt">${fmt(db.outhome)} <span class="ts">घर →</span></div>`;
 }
+/* IN/OUT HOME — माल आवत column के अंदर best-design card */
+function buildIOCard(db,live){
+  const hasData=(db.inhome&&db.inhome.length)||db.outhome!==null&&db.outhome!==undefined;
+  if(!live && !hasData) return '';
+  return `<div class="io-card" data-nocol="1">
+    <div class="io-head"><div class="in-h" id="inhome-head">🏠 IN HOME</div><div class="out-h" id="outhome-head">OUT HOME 🏠</div></div>
+    <div class="io-body"><div class="io-bcol" id="col-inhome">${buildInHome(db,live)}</div><div class="io-bcol" id="col-outhome">${buildOutHome(db,live)}</div></div>
+  </div>`;
+}
 
 function renderAll(){
-  $('#nb-date-l').textContent=DATE; $('#nb-date-r').textContent=DATE;
+  $('#nb-date-l').textContent=CUR_DATE; $('#nb-date-r').textContent=CUR_DATE;
   $('#rokad-head-amt').textContent = DB.opening!==null? fmt(DB.opening):'';
   $('#col-rokad').innerHTML = buildRokad(DB,true);
   $('#col-jama').innerHTML  = buildJama(DB,true);
   $('#col-maal').innerHTML  = buildMaal(DB,true);
   $('#col-nagad').innerHTML = buildNagad(DB,true);
   $('#col-kharch').innerHTML= buildKharch(DB,true);
-  $('#col-inhome').innerHTML= buildInHome(DB,true);
-  $('#col-outhome').innerHTML= buildOutHome(DB,true);
+  const bb=$('#nb-back');
+  if(CUR_DATE!==DATE){ bb.textContent='← आज पर वापस'; bb.style.background='linear-gradient(135deg,#f39c12,#d35400)'; }
+  else{ bb.textContent='← Home'; bb.style.background=''; }
   renderTotals();
 }
 
@@ -726,11 +755,12 @@ $('#nb-total-btn').addEventListener('click',()=>{
   else{ DB.totals=computeTotals(); save(); renderAll(); toast('Total बन गया ✔'); }
 });
 
-/* ---------- IN / OUT HOME ---------- */
-$('#inhome-head').addEventListener('click',()=>openInHome());
-$('#col-inhome').addEventListener('click',e=>{ if(!e.target.closest('.io-amt')) openInHome(); });
-$('#outhome-head').addEventListener('click',()=>openOutHome());
-$('#col-outhome').addEventListener('click',e=>{ if(!e.target.closest('.io-amt')) openOutHome(); });
+/* ---------- IN / OUT HOME (delegated — card re-created on every render) ---------- */
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#notebook-screen')) return;
+  if(e.target.closest('#inhome-head')||e.target.closest('#col-inhome')){ openInHome(); }
+  else if(e.target.closest('#outhome-head')||e.target.closest('#col-outhome')){ openOutHome(); }
+});
 function openInHome(){
   popup({
     title:'🏠 IN HOME — घर से लाया',
@@ -788,10 +818,26 @@ function handleEntryTap(entry){
       }else{
         askPassword(()=>openCutManage(sec,i),'🔐 कटी Entry — Password');
       }
+    }else if(n>=2){ // double-tap = entry options (edit)
+      openEntryOptions(sec,i);
     }else{
       if(sec==='kharch' && DB.kharch[i].pending){ openPendingFill(i); }
     }
   },320);
+}
+function openEntryOptions(sec,i){
+  popup({
+    title:'📝 Entry Options',
+    body:`<div class="print-choice">
+        <button id="eo-edit" style="border-color:#f39c12;"><span class="pc-ico">✏️</span>Edit करें<br><small style="color:#8a94a6">बदलने पर समय + highlight</small></button>
+        <button id="eo-cut" style="border-color:#ff7675;"><span class="pc-ico">✂️</span>Cut करें<br><small style="color:#8a94a6">total से हटेगी</small></button>
+      </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelector('#eo-edit').addEventListener('click',()=>{ closePopup(); SEC_OPEN[sec](i); });
+      bk.querySelector('#eo-cut').addEventListener('click',()=>{ closePopup(); DB[sec][i].cut=true; save(); renderAll(); toast('Entry काट दी गई ✂️'); });
+    }
+  });
 }
 function openCutManage(sec,i){
   popup({
@@ -808,14 +854,15 @@ function openCutManage(sec,i){
   });
 }
 document.addEventListener('click',e=>{
-  const pencil=e.target.closest('.edit-pencil');
-  if(pencil){ e.stopPropagation(); SEC_OPEN[pencil.dataset.edit](+pencil.dataset.i); return; }
+  const strip=e.target.closest('.add-strip');
+  if(strip){ e.stopPropagation(); SEC_OPEN[strip.dataset.add](); return; }
+  if(e.target.closest('.io-card')) return; // handled by IN/OUT delegation
   const entry=e.target.closest('.hw-entry');
   if(entry && entry.dataset.sec){ handleEntryTap(entry); return; }
   const col=e.target.closest('.nb-col');
   if(col && !e.target.closest('.total-block') && !e.target.closest('.grand-block')){
     const map={'col-rokad':'rokad','col-jama':'jama','col-maal':'maal','col-nagad':'nagad','col-kharch':'kharch'};
-    const sec=map[col.id]; if(sec){ if(sec==='kharch'){/* handled via divider too */} SEC_OPEN[sec](); }
+    const sec=map[col.id]; if(sec){ SEC_OPEN[sec](); }
   }
 });
 $('#rokad-head-amt').parentElement.addEventListener('click',e=>{ if(e.target.classList.contains('head-amt')||e.target.closest('.head-amt')){ e.stopPropagation(); openOpening(); } });
@@ -855,11 +902,7 @@ function notebookHTML(db,date,withTotal){
       <div class="nb-date">${date}</div>
       <div class="nb-cols-head"><div class="nb-col-title">माल आवत खाते</div><div class="nb-col-title">नगद नाम खाते</div></div>
       <div class="nb-body"><div class="nb-colline"></div>
-        <div class="nb-col-stack" style="cursor:default;">
-          <div class="nb-col" id="col-maal" style="width:100%;">${buildMaal(db,false)}</div>
-          <div class="home-io-head"><div>IN HOME</div><div>OUT HOME</div></div>
-          <div class="home-io-body"><div class="home-io-col">${buildInHome(db,false)}</div><div class="home-io-col">${buildOutHome(db,false)}</div></div>
-        </div>
+        <div class="nb-col" id="col-maal">${buildMaal(db,false)}</div>
         <div class="nb-col-stack">
           <div class="nb-col right-col" id="col-nagad">${buildNagad(db,false)}</div>
           <div class="kharch-divider">नगद खर्च</div>
@@ -867,6 +910,13 @@ function notebookHTML(db,date,withTotal){
         </div></div>
     </div></div>`;
   return wrap;
+}
+/* print helper — stage को print के बाद ही खाली करो (tablet/mobile में window.print async होता है — पहले खाली करने से blank print आता था) */
+function doPrint(){
+  const stage=$('#print-stage');
+  const cleanup=()=>{ stage.innerHTML=''; document.body.classList.remove('receipt-mode','print-plain'); window.removeEventListener('afterprint',cleanup); };
+  window.addEventListener('afterprint',cleanup);
+  setTimeout(()=>{ window.print(); setTimeout(cleanup,5000); },250);
 }
 function printNotebook(db,date,withTotal){
   const stage=$('#print-stage');
@@ -882,7 +932,7 @@ function printNotebook(db,date,withTotal){
     const h=stage.firstElementChild.scrollHeight||1;
     const scale=Math.min(1, 740/h);
     stage.style.setProperty('--pscale',scale);
-    setTimeout(()=>{ window.print(); stage.innerHTML=''; },150);
+    doPrint();
   });
 }
 
@@ -936,11 +986,13 @@ function openReceipt(){
         const pay=segVal(bk)||'cash';
         const rc={no:rno,name,address:addr,items:rItems,pay,ts:nowTS()};
         DB.receipts.push(rc);
-        // cash रसीद → रोकड में (km) के साथ entry
-        const items=rItems.map(x=>({item:x.item,sub:x.sub,qty:x.qty,price:x.rate,total:x.qty*x.rate,
-          cash:pay==='cash'?x.qty*x.rate:0,online:pay==='online'?x.qty*x.rate:0,km:true}));
-        const total=items.reduce((a,x)=>a+x.total,0);
-        DB.rokad.push({items,total,cash:pay==='cash'?total:0,online:pay==='online'?total:0,ts:nowTS(),cut:false,fromReceipt:rno});
+        // रोकड में (km) entry सिर्फ तभी जब नाम में "cash" लिखा हो (जैसे "cash" या "Avinash cash") — payment mode कुछ भी हो
+        if(/cash/i.test(name)){
+          const items=rItems.map(x=>({item:x.item,sub:x.sub,qty:x.qty,price:x.rate,total:x.qty*x.rate,
+            cash:pay==='cash'?x.qty*x.rate:0,online:pay==='online'?x.qty*x.rate:0,km:true}));
+          const total=items.reduce((a,x)=>a+x.total,0);
+          DB.rokad.push({items,total,cash:pay==='cash'?total:0,online:pay==='online'?total:0,ts:nowTS(),cut:false,fromReceipt:rno});
+        }
         save(); closePopup(); renderAll();
         printReceipt(rc);
       });
@@ -960,7 +1012,9 @@ function printReceipt(rc){
     <div style="text-align:center;font-size:11px;color:#888;margin-top:10px;">धन्यवाद! — ${rc.pay==='online'?'A/C Paid':'Cash Paid'}</div>
   </div>`;
   document.body.classList.add('receipt-mode');
-  setTimeout(()=>{ window.print(); document.body.classList.remove('receipt-mode'); },150);
+  const cleanup=()=>{ document.body.classList.remove('receipt-mode'); $('#receipt-print').innerHTML=''; window.removeEventListener('afterprint',cleanup); };
+  window.addEventListener('afterprint',cleanup);
+  setTimeout(()=>{ window.print(); setTimeout(cleanup,5000); },250);
 }
 
 /* =========================================================
@@ -981,9 +1035,22 @@ function showRecDates(){
   recDates=listDates(prefix);
   const titles={nb:'\ud83d\udcd4 Notebook \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',sb:'\ud83d\udcda S.Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',att:'\ud83d\uddd3\ufe0f Attendance \u2014 \u092e\u0939\u0940\u0928\u093e \u091a\u0941\u0928\u0947\u0902'};
   $('#rec-dates-title').textContent=titles[recMode];
-  $('#rec-dates-list').innerHTML = recDates.length? recDates.map((d,i)=>
-    `<div class="rec-date-card" data-ri="${i}">${d}<small>${recMode==='att'?'\u092e\u0939\u0940\u0928\u093e':'\u0926\u093f\u0928'} \u0926\u0947\u0916\u0947\u0902 \u2192</small></div>`).join('')
-    : `<div class="placeholder-card"><span class="big-ico">\ud83d\udced</span><h3>\u0915\u094b\u0908 record \u0928\u0939\u0940\u0902</h3><p>\u0905\u092d\u0940 \u0924\u0915 \u0915\u094b\u0908 data save \u0928\u0939\u0940\u0902 \u0939\u0941\u0906</p></div>`;
+  // महीने के हिसाब से group — 6 महीने का data भी आसानी से मिलेगा
+  const MN=['','जनवरी','फरवरी','मार्च','अप्रैल','मई','जून','जुलाई','अगस्त','सितम्बर','अक्टूबर','नवम्बर','दिसम्बर'];
+  let html='';
+  if(recDates.length){
+    if(recMode==='att'){
+      html=recDates.map((d,i)=>`<div class="rec-date-card" data-ri="${i}">${d}<small>महीना देखें →</small></div>`).join('');
+    }else{
+      let lastMonth='';
+      recDates.forEach((d,i)=>{
+        const p=d.split('-'); const mkey=p[1]+'-'+p[2];
+        if(mkey!==lastMonth){ lastMonth=mkey; html+=`<div class="rec-month-head">📆 ${MN[parseInt(p[1])]||p[1]} ${p[2]}</div>`; }
+        html+=`<div class="rec-date-card" data-ri="${i}">${d}<small>दिन देखें →</small></div>`;
+      });
+    }
+  }else html=`<div class="placeholder-card"><span class="big-ico">📭</span><h3>कोई record नहीं</h3><p>अभी तक कोई data save नहीं हुआ</p></div>`;
+  $('#rec-dates-list').innerHTML=html;
   go('recorddates');
 }
 $('#rec-dates-list').addEventListener('click',e=>{
@@ -1015,6 +1082,11 @@ $('#rec-print').addEventListener('click',()=>{
   db.totals=computeTotals(db);
   printNotebook(db,d,true);
 });
+/* back-date edit — password के बाद उस दिन की notebook खुलेगी; edit करने पर आज की तारीख़ + समय stamp होगा */
+$('#rec-edit')?.addEventListener('click',()=>{
+  const d=recDates[recIdx]; if(!d||recMode==='att') return;
+  askPassword(()=>{ enterEditDate(d); go('notebook'); renderAll(); toast('⚠️ '+d+' की notebook edit हो रही है — बदलाव पर आज की तारीख़ stamp होगी'); },'🔐 पिछली तारीख़ Edit — Password');
+});
 
 /* =========================================================
    ATTENDANCE
@@ -1031,38 +1103,54 @@ function adminPassword(name){
   const d=new Date(); let h=d.getHours()%12; if(h===0)h=12;
   return (name[0]||'a')+String(h)+String(String(d.getDate()).padStart(2,'0'));
 }
+const DOW=['Su','Mo','Tu','We','Th','Fr','Sa'];
 function attTableHTML(mk,live){
   const a=live?ATT:loadAtt(mk);
   const nDays=daysInMonth(mk);
+  const [mm,yy]=mk.split('-').map(Number);
   const isCurMonth = mk===MONTH_KEY(); const todayD=new Date().getDate();
   let head='<tr><th class="st-name">Staff (Sr.)</th>';
-  for(let d=1;d<=nDays;d++) head+=`<th class="${isCurMonth&&d===todayD?'today-h':''}">${d}</th>`;
+  for(let d=1;d<=nDays;d++){
+    const dow=new Date(yy,mm-1,d).getDay();
+    head+=`<th class="${isCurMonth&&d===todayD?'today-h':''} ${dow===0?'sun':''}">${d}<span class="dow">${DOW[dow]}</span></th>`;
+  }
   head+='<th>P</th></tr>';
   const rows=a.staff.map((nm,si)=>{
-    let tds=`<td class="st-name">${si+1}. ${esc(nm)}${live?`<span class="att-del" data-del="${si}">\u2716</span>`:''}</td>`;
+    let tds=`<td class="st-name">${si+1}. ${esc(nm)}</td>`;
     let pc=0;
     for(let d=1;d<=nDays;d++){
       const m=a.marks[nm]?.[d];
       const future=isCurMonth&&d>todayD;
+      const dow=new Date(yy,mm-1,d).getDay();
       let inner='';
       if(m){ if(m.v==='P')pc++;
         inner=`<span class="att-mark ${m.v==='P'?'p':'x'} ${m.late?'late':''}">${m.v==='P'?'P':'\u2715'}</span>`; }
-      tds+=`<td class="att-cell ${isCurMonth&&d===todayD?'today-col':''} ${future?'future':''}" data-s="${si}" data-d="${d}">${inner}</td>`;
+      tds+=`<td class="att-cell ${isCurMonth&&d===todayD?'today-col':''} ${future?'future':''} ${dow===0?'sun':''}" data-s="${si}" data-d="${d}">${inner}</td>`;
     }
     tds+=`<td style="font-weight:800;color:#1e8449;">${pc}</td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
-  return `<table class="att-table"><thead>${head}</thead><tbody>${rows||`<tr><td class="st-name" colspan="${nDays+2}" style="text-align:center;color:#98a1b3;">\u2795 Add Name \u0938\u0947 staff \u091c\u094b\u0921\u093c\u0947\u0902</td></tr>`}</tbody></table>
-    <div class="att-legend"><span><span class="att-mark p" style="width:18px;height:18px;font-size:10px;">P</span> Present</span>
-    <span><span class="att-mark x" style="width:18px;height:18px;font-size:10px;">\u2715</span> Absent</span>
-    <span><span class="att-mark p late" style="width:18px;height:18px;font-size:10px;">P</span> \u092c\u093e\u0926 \u092e\u0947\u0902 \u092d\u0930\u093e (admin)</span></div>`;
+  return `<table class="att-table"><thead>${head}</thead><tbody>${rows||`<tr><td class="st-name" colspan="${nDays+2}" style="text-align:center;color:#98a1b3;">Date \u092a\u0930 5 \u092c\u093e\u0930 click \u2192 Add Name</td></tr>`}</tbody></table>`;
 }
+function attLockKey(mk){ return 'sg_attlock_'+mk; }
+function attLocks(mk){ try{ return JSON.parse(localStorage.getItem(attLockKey(mk)))||{}; }catch(e){ return {}; } }
+function setAttLock(mk,d){ const l=attLocks(mk); l[d]=true; localStorage.setItem(attLockKey(mk),JSON.stringify(l)); }
+function isAttLocked(mk,d){ return !!attLocks(mk)[d]; }
 function renderAttendance(){
   ATT=loadAtt(MONTH_KEY());
   attStaffGlobal().forEach(n=>{ if(!ATT.staff.includes(n)) ATT.staff.push(n); });
   saveAtt(MONTH_KEY(),ATT);
   $('#att-date').textContent=DATE;
   $('#att-wrap').innerHTML=attTableHTML(MONTH_KEY(),true);
+  // Final Submit \u2014 \u0938\u092c\u0915\u093e \u0906\u091c \u0915\u093e mark \u092c\u0928\u0928\u0947 \u092a\u0930 \u0939\u0940 \u0926\u093f\u0916\u0947; lock \u0915\u0947 \u092c\u093e\u0926 hide
+  const d=new Date().getDate();
+  const allMarked = ATT.staff.length>0 && ATT.staff.every(nm=>ATT.marks[nm]?.[d]);
+  const locked = isAttLocked(MONTH_KEY(),d);
+  const act=$('#att-actions');
+  if(locked){ act.style.display='flex'; act.innerHTML=`<div class="att-locked-tag">\u2705 \u0906\u091c \u0915\u0940 attendance final \u0939\u094b \u0917\u0908 \ud83d\udd12</div>`; }
+  else if(allMarked){ act.style.display='flex'; act.innerHTML=`<button class="att-final-btn" id="att-final-btn">\u2714 Final Submit</button>`;
+    $('#att-final-btn').addEventListener('click',()=>{ setAttLock(MONTH_KEY(),new Date().getDate()); renderAttendance(); toast('Attendance final \u2714 \u0905\u092c \u092c\u0926\u0932\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f admin password \u0932\u0917\u0947\u0917\u093e'); }); }
+  else{ act.style.display='none'; act.innerHTML=''; }
   requestAnimationFrame(()=>{ const t=$('#att-wrap .today-col'); if(t) t.scrollIntoView({block:'nearest',inline:'center'}); });
 }
 $('#att-add-name').addEventListener('click',()=>{
@@ -1083,13 +1171,11 @@ $('#att-add-name').addEventListener('click',()=>{
   });
 });
 $('#att-wrap').addEventListener('click',e=>{
-  const del=e.target.closest('.att-del');
-  if(del){ const si=+del.dataset.del; const nm=ATT.staff[si];
-    askAttAdmin(nm,()=>{ ATT.staff.splice(si,1); setStaffGlobal(attStaffGlobal().filter(x=>x!==nm)); saveAtt(MONTH_KEY(),ATT); renderAttendance(); toast(nm+' \u0939\u091f\u093e\u092f\u093e \u0917\u092f\u093e'); });
-    return; }
   const cell=e.target.closest('.att-cell'); if(!cell||cell.classList.contains('future')) return;
   const si=+cell.dataset.s, d=+cell.dataset.d, nm=ATT.staff[si];
-  if(d===new Date().getDate()){ openMarkChoice(nm,d,false); }
+  const today=new Date().getDate();
+  if(d===today && !isAttLocked(MONTH_KEY(),d)){ openMarkChoice(nm,d,false); }
+  else if(d===today){ askAttAdmin(nm,()=>openMarkChoice(nm,d,false)); }
   else{ askAttAdmin(nm,()=>openMarkChoice(nm,d,true)); }
 });
 function openMarkChoice(nm,d,late){
@@ -1125,15 +1211,12 @@ function askAttAdmin(nm,onOk){
     }
   });
 }
-$('#att-all-p').addEventListener('click',()=>{
-  const d=new Date().getDate();
-  ATT.staff.forEach(nm=>{ ATT.marks[nm]=ATT.marks[nm]||{}; if(!ATT.marks[nm][d]) ATT.marks[nm][d]={v:'P',late:false}; });
-  saveAtt(MONTH_KEY(),ATT); renderAttendance(); toast('\u0906\u091c \u0938\u092c\u0915\u093e P \u0932\u0917 \u0917\u092f\u093e \u2714');
-});
-$('#att-submit').addEventListener('click',()=>{ saveAtt(MONTH_KEY(),ATT); toast('Attendance final submit \u2714'); });
+/* date पर 5 बार click → Add Name button toggle */
 (function(){ let c=0,t=null;
   $('#att-date').addEventListener('click',()=>{ c++; clearTimeout(t);
-    t=setTimeout(()=>{ if(c>=3) printAttendance(MONTH_KEY()); c=0; },420); });
+    t=setTimeout(()=>{
+      if(c>=5){ const b=$('#att-add-name'); const hidden=b.style.display==='none'; b.style.display=hidden?'':'none'; toast(hidden?'Add Name दिख रहा ✔':'Add Name छुप गया'); }
+      c=0; },500); });
 })();
 function printAttendance(mk){
   const stage=$('#print-stage');
@@ -1143,7 +1226,7 @@ function printAttendance(mk){
     const h=stage.scrollHeight||1, w=stage.scrollWidth||1;
     const scale=Math.min(1, 740/h, 1077/w);
     stage.style.setProperty('--pscale',scale);
-    setTimeout(()=>{ window.print(); stage.innerHTML=''; },150);
+    doPrint();
   });
 }
 
