@@ -174,14 +174,13 @@ body{overflow-x:hidden;}
 .hw-entry.pending-kharch{background:rgba(72,219,251,.14);border-radius:6px;}
 .hw-entry .pending-tag{font-size:10px;background:#0984e3;color:#fff;border-radius:6px;padding:1px 6px;font-family:'Poppins';margin-left:6px;}
 
-/* FILL professional chips */
-.fill-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:#f2f8ff;border:1.5px solid #cfe3f5;border-radius:9px;padding:4px 6px;margin:3px 0;}
-.fill-tag{background:linear-gradient(135deg,#48dbfb,#0984e3);color:#fff;font-size:.68em;font-weight:800;padding:1px 8px;border-radius:6px;letter-spacing:1.5px;font-family:'Poppins';}
-.fill-chip{background:#fff;border:1.5px solid #b3d1ea;border-radius:7px;padding:0 6px;font-weight:700;font-size:.82em;color:#1f618d;font-family:'Poppins';}
-.fill-cnt{background:#fff3e0;border:1.5px solid #f5b971;color:#b9770e;border-radius:7px;padding:0 6px;font-weight:800;font-size:.8em;font-family:'Poppins';white-space:nowrap;}
-.fill-sum{margin-left:auto;background:#eafaf1;border:1.5px solid #7fd8a5;color:#1e8449;border-radius:7px;padding:0 7px;font-weight:800;font-size:.85em;font-family:'Poppins';white-space:nowrap;}
-/* IN / OUT HOME card (inside माल आवत column) */
-.io-card{margin:12px 2px 4px;border:2px solid #14213d;border-radius:14px;overflow:hidden;background:#fffdf3;box-shadow:0 6px 16px -8px rgba(20,33,61,.35);font-family:'Kalam','Noto Sans Devanagari',cursive;}
+/* FILL — simple professional chips (बोरा count सिर्फ़ ऊपर वाले circle में) */
+.fill-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:2px 0;margin:2px 0;}
+.fill-tag{background:#eaf2fb;color:#1f618d;border:1px solid #bcd6ec;font-size:.7em;font-weight:700;padding:0 7px;border-radius:5px;letter-spacing:1px;font-family:'Poppins';}
+.fill-chip{background:#fff;border:1px solid #cbd6e2;border-radius:6px;padding:0 5px;font-weight:600;font-size:.8em;color:#33405a;font-family:'Poppins';}
+.fill-sum{background:#f2faf5;border:1px solid #b7e2c9;color:#1e8449;border-radius:6px;padding:0 6px;font-weight:700;font-size:.82em;font-family:'Poppins';white-space:nowrap;}
+/* IN / OUT HOME card (माल आवत column के अंदर — नीचे थोड़ी दूरी पर) */
+.io-card{margin:58px 2px 4px;border:2px solid #14213d;border-radius:14px;overflow:hidden;background:#fffdf3;box-shadow:0 6px 16px -8px rgba(20,33,61,.35);font-family:'Kalam','Noto Sans Devanagari',cursive;}
 .io-card .io-head{display:flex;}
 .io-card .io-head div{width:50%;text-align:center;font-weight:800;padding:5px 2px;letter-spacing:1.5px;cursor:pointer;font-family:'Poppins';font-size:clamp(10px,1vw,13px);color:#fff;user-select:none;}
 .io-card .io-head .in-h{background:linear-gradient(135deg,#2ecc71,#1e8449);}
@@ -195,10 +194,12 @@ body{overflow-x:hidden;}
 .maal-entry .m-top{display:flex;align-items:flex-start;gap:6px;}
 .maal-entry .m-left{flex:1;min-width:0;}
 .maal-entry .m-name{font-weight:700;font-size:1.06em;}
-.maal-entry .m-line{color:#333;}
+.maal-entry .m-line{color:#333;white-space:nowrap;display:flex;gap:12px;align-items:baseline;}
+.maal-entry .m-line .m-cell{white-space:nowrap;}
 .maal-entry .m-lbl{color:#6b7280;font-size:.82em;}
 .maal-badge{flex-shrink:0;border:2px solid #14213d;border-radius:50%;padding:3px 9px;font-weight:700;font-size:.95em;white-space:nowrap;line-height:1.15;text-align:center;background:#fffde7;}
 .maal-badge .dp{font-size:.72em;letter-spacing:2px;display:block;}
+.maal-badge .dpw-val{font-size:.95em;}
 .maal-rate{writing-mode:vertical-rl;text-orientation:mixed;border-left:2.5px solid #14213d;padding:2px 1px 2px 4px;font-weight:700;flex-shrink:0;align-self:stretch;display:flex;align-items:center;font-size:.9em;min-height:52px;}
 .maal-rate.empty{color:#b6bcc9;border-left-style:dashed;}
 .maal-serial{display:inline-block;border:1.6px solid #14213d;border-radius:6px;padding:0 6px;font-weight:800;margin-right:6px;background:#eef6ff;}
@@ -288,28 +289,10 @@ body{overflow-x:hidden;}
   .spine-print-btn{top:50%;}
   .nb-col{min-height:220px;}
 }
-/* ============ PRINT (A4 one page) ============ */
-#print-stage{display:none;}
-@media print{
-  @page{size:A4 landscape;margin:5mm;}
-  body>*{display:none!important;}
-  body{background:#fff!important;}
-  #print-stage{display:block!important;position:absolute;left:0;top:0;width:1077px;transform-origin:top left;transform:scale(var(--pscale,1));}
-  #print-stage .notebook{box-shadow:none;animation:none;min-height:auto;flex-direction:row!important;border:1px solid #999;border-radius:0;}
-  #print-stage .nb-page{width:50%!important;padding:8px 10px 20px;background:#fff!important;box-shadow:none!important;border-radius:0;}
-  #print-stage .hw-entry,#print-stage .total-block{font-size:11.5px!important;}
-  #print-stage .maal-entry{font-size:10.5px!important;}
-  #print-stage .nb-col-title{font-size:12.5px!important;}
-  #print-stage .nb-col{min-height:60px;padding-bottom:6px;}
-  #print-stage .add-strip{display:none!important;}
-  body.print-plain #print-stage .total-block, body.print-plain #print-stage .grand-block{display:none!important;}
-}
-/* receipt print */
-@media print{
-  body.receipt-mode #print-stage{display:none!important;}
-  body.receipt-mode #receipt-print{display:block!important;position:absolute;left:0;top:0;width:100%;}
-}
-#receipt-print{display:none;}
+/* ============ PRINT ============
+   Print अब अलग hidden iframe में होता है (app.js → printDocument)।
+   पुराना #print-stage / @media print वाला तरीक़ा हटा दिया गया है —
+   उसी की वजह से blank white page आ रहा था। */
 .rcpt-paper{width:420px;margin:0 auto;border:2px solid #14213d;border-radius:10px;padding:16px 18px;font-family:'Poppins','Noto Sans Devanagari';background:#fff;}
 .rcpt-paper h2{text-align:center;letter-spacing:2px;background:linear-gradient(120deg,#b8860b,#ffd700,#8a6508);-webkit-background-clip:text;background-clip:text;color:transparent;}
 .rcpt-paper .r-sub{text-align:center;font-size:11px;color:#888;letter-spacing:2px;margin-bottom:8px;}
@@ -363,8 +346,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .att-final-btn{border:none;padding:13px 26px;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;color:#fff;letter-spacing:.5px;background:linear-gradient(135deg,#48dbfb,#0984e3);box-shadow:0 10px 24px -8px rgba(9,132,227,.6);transition:.25s;animation:cardIn .5s;}
 .att-final-btn:hover{transform:translateY(-3px);}
 .att-locked-tag{background:#eafaf1;border:2px solid #7fd8a5;color:#1e8449;font-weight:800;border-radius:12px;padding:10px 22px;font-size:14px;animation:cardIn .5s;}
-#print-stage .att-table th,#print-stage .att-table td{border:1px solid #999;}
-#print-stage .att-title{font-weight:800;font-size:20px;text-align:center;padding:8px;letter-spacing:2px;}
+.att-title{font-weight:800;font-size:20px;text-align:center;padding:8px;letter-spacing:2px;}
 </style>
 </head>
 <body>
@@ -485,8 +467,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 
 <div id="toast"></div>
 <div id="popups-root"></div>
-<div id="print-stage"></div>
-<div id="receipt-print"></div>
+
 <script src="app.js"></script>
 </body>
 </html>

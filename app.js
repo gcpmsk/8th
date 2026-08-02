@@ -247,6 +247,8 @@ function openMaal(editIdx=null){
       <div class="f-row" id="ml-pic-row" style="display:${kind==='fill'?'none':'flex'};"><label>Total बोरा (Pic)</label><input type="number" id="ml-pic" inputmode="numeric" value="${e.pic??''}"></div>
       <div class="f-row"><label>Dust (D)</label><input type="number" id="ml-dust" inputmode="numeric" placeholder="0" value="${e.dust??''}"></div>
       <div class="f-row"><label>Plastic बोरा (P)</label><input type="number" id="ml-plastic" inputmode="numeric" placeholder="0" value="${e.plastic??''}"></div>
+      <div class="f-row"><label>पानी वाला (W)</label><input type="number" id="ml-wet" inputmode="numeric" placeholder="0" value="${e.wet??''}"></div>
+      <div class="pp-note" style="background:#eef7ff;color:#1f618d;">W = पानी वाला wheat — check कर के जितना बोरा पानी वाला मिले वह यहाँ भरें</div>
       <hr style="border:none;border-top:1.5px dashed #dde3ec;margin:8px 0 12px;">
       <div id="ml-rst-fields" style="display:${kind==='rst'?'block':'none'};">
         <div class="f-row"><label>RST No</label><input type="text" id="ml-rst" placeholder="बाद में" value="${e.rst||''}"></div>
@@ -285,7 +287,7 @@ function openMaal(editIdx=null){
         if(curKind==='fill' && !(pic>0)){ toast('Weights भरें — बोरा count अपने आप होगा'); return; }
         const num=id=>{ const v=g(id).value.trim(); return v===''?null:parseFloat(v); };
         const rec={serial,kind:curKind,name,address:g('ml-addr').value.trim(),pic,
-          dust:num('ml-dust')??0,plastic:num('ml-plastic')??0,rate:num('ml-rate'),
+          dust:num('ml-dust')??0,plastic:num('ml-plastic')??0,wet:num('ml-wet')??0,rate:num('ml-rate'),
           ts:e.ts||nowTS(),cut:e.cut||false};
         if(curKind==='rst'){
           rec.rst=g('ml-rst').value.trim(); rec.gross=num('ml-gross'); rec.tare=num('ml-tare'); rec.nett=num('ml-nett');
@@ -604,15 +606,17 @@ function buildJama(db,live){
 }
 function buildMaal(db,live){
   return db.maal.map((r,i)=>{
-    const w=(v,lbl)=>`<span class="m-lbl">${lbl}</span>-${v===null||v===undefined?'<span style="color:#b6bcc9">—</span>':fmt(v)}`;
+    /* value हमेशा दिखे — भरा हो तो digit, खाली हो तो — */
+    const w=(v,lbl)=>`<span class="m-cell"><span class="m-lbl">${lbl}</span>-${v===null||v===undefined||v===''?'<span style="color:#b6bcc9">—</span>':fmt(v)}</span>`;
     let mid='';
     if((r.kind||'rst')==='rst'){
-      mid=`<div class="m-line">${r.rst?`<span class="m-lbl">RST</span>-${esc(r.rst)} &nbsp; `:''}${w(r.gross,'GROSS')}</div>
-           <div class="m-line">${w(r.tare,'TARE')} &nbsp; ${w(r.nett,'NETT')}</div>`;
+      // line 1 : RST + GROSS   |   line 2 : TARE + NETT  (दोनों एक-एक line में)
+      mid=`<div class="m-line">${r.rst?`<span class="m-cell"><span class="m-lbl">RST</span>-${esc(r.rst)}</span>`:''}${w(r.gross,'GROSS')}</div>
+           <div class="m-line">${w(r.tare,'TARE')}${w(r.nett,'NETT')}</div>`;
     }else{
-      const chips=(r.weights&&r.weights.length)? r.weights.map(x=>`<span class="fill-chip">${fmt(x)}kg</span>`).join('') : '<span style="color:#b6bcc9">—</span>';
-      const cnt=(r.weights&&r.weights.length)||0;
-      mid=`<div class="fill-wrap"><span class="fill-tag">FILL</span>${chips}<span class="fill-cnt">📦 ${cnt} बोरा</span><span class="fill-sum">= ${r.fillTotal?fmt(r.fillTotal)+' kg':'—'}</span></div>`;
+      const chips=(r.weights&&r.weights.length)? r.weights.map(x=>`<span class="fill-chip">${fmt(x)}</span>`).join('') : '<span style="color:#b6bcc9">—</span>';
+      // बोरा count ऊपर वाले circle में ही दिखता है — यहाँ दोबारा नहीं
+      mid=`<div class="fill-wrap"><span class="fill-tag">FILL</span>${chips}<span class="fill-sum">${r.fillTotal?fmt(r.fillTotal)+' kg':'—'}</span></div>`;
     }
     const isFill=(r.kind||'rst')==='fill';
     const picShow = isFill ? ((r.weights&&r.weights.length)||0) : r.pic;
@@ -622,7 +626,7 @@ function buildMaal(db,live){
           <div class="m-name"><span class="maal-serial">${r.serial}</span>${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>
           ${mid}
         </div>
-        <div class="maal-badge"><span class="dp">D&nbsp;&nbsp;P</span>${picShow} = ${r.dust}/${r.plastic}</div>
+        <div class="maal-badge"><span class="dp">D&nbsp;P&nbsp;W</span><span class="dpw-val">${picShow} = ${r.dust||0}/${r.plastic||0}/${r.wet||0}</span></div>
         <div class="maal-rate ${r.rate===null||r.rate===undefined?'empty':''}">RATE-${r.rate===null||r.rate===undefined?'?':fmt(r.rate)}</div>
       </div>
       <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
@@ -696,7 +700,9 @@ function computeTotals(db=DB){
   const kharchT  = alive(db.kharch).reduce((a,x)=>a+x.amount,0);
   const inhomeT  = (db.inhome||[]).reduce((a,x)=>a+x.amount,0);
   const nagadFinal = nagadAdd - nagadAC - nagadHome;
-  const grand = (rokadAdd-rokadAC)+(jamaAdd-jamaAC)+nagadFinal+kharchT+inhomeT;
+  /* कुल Total = (रोकड + जमा + IN HOME) − (नगद नाम खाते + नगद खर्च)
+     — नगद नाम खाते और नगद खर्च अब जुड़ते नहीं, घटते हैं */
+  const grand = (rokadAdd-rokadAC)+(jamaAdd-jamaAC)+inhomeT-nagadFinal-kharchT;
   return {
     rokadAdd,rokadAC,rokadFinal:rokadAdd-rokadAC,
     jamaAdd,jamaAC,jamaFinal:jamaAdd-jamaAC,
@@ -728,8 +734,8 @@ function grandBlockHTML(T){
   return `<div class="grand-block">
       <div class="t-row"><span class="t-num">${fmt(T.rokadFinal)}</span><span class="t-lbl">रोकड + नगदी बिक्री</span></div>
       <div class="t-row"><span class="t-num">${fmt(T.jamaFinal)}</span><span class="t-lbl">जमा खाते नाम</span></div>
-      <div class="t-row"><span class="t-num">${fmt(T.nagadFinal)}</span><span class="t-lbl">नगद नाम खाते</span></div>
-      <div class="t-row"><span class="t-num">${fmt(T.kharchT)}</span><span class="t-lbl">नगद खर्च</span></div>
+      <div class="t-row red"><span class="t-num">-${fmt(T.nagadFinal)}</span><span class="t-lbl">नगद नाम खाते</span></div>
+      <div class="t-row red"><span class="t-num">-${fmt(T.kharchT)}</span><span class="t-lbl">नगद खर्च</span></div>
       ${T.inhomeT?`<div class="t-row"><span class="t-num">${fmt(T.inhomeT)}</span><span class="t-lbl">IN HOME</span></div>`:''}
       <div class="t-line double"></div>
       <div class="t-row green" style="font-size:1.25em;"><span class="t-num">${fmt(T.grand)}</span><span class="t-lbl">कुल Total</span></div>
@@ -879,8 +885,8 @@ function openPrintChoice(){
       </div>`,
     foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
     onOpen(bk){
-      bk.querySelector('#pr-plain').addEventListener('click',()=>{ closePopup(); printNotebook(DB,DATE,false); });
-      bk.querySelector('#pr-total').addEventListener('click',()=>{ closePopup(); DB.totals=computeTotals(); save(); renderAll(); printNotebook(DB,DATE,true); });
+      bk.querySelector('#pr-plain').addEventListener('click',()=>{ closePopup(); printNotebook(DB,CUR_DATE,false); });
+      bk.querySelector('#pr-total').addEventListener('click',()=>{ closePopup(); DB.totals=computeTotals(); save(); renderAll(); printNotebook(DB,CUR_DATE,true); });
       bk.querySelector('#pr-receipt').addEventListener('click',()=>{ closePopup(); openReceipt(); });
     }
   });
@@ -911,29 +917,127 @@ function notebookHTML(db,date,withTotal){
     </div></div>`;
   return wrap;
 }
-/* print helper — stage को print के बाद ही खाली करो (tablet/mobile में window.print async होता है — पहले खाली करने से blank print आता था) */
-function doPrint(){
-  const stage=$('#print-stage');
-  const cleanup=()=>{ stage.innerHTML=''; document.body.classList.remove('receipt-mode','print-plain'); window.removeEventListener('afterprint',cleanup); };
-  window.addEventListener('afterprint',cleanup);
-  setTimeout(()=>{ window.print(); setTimeout(cleanup,5000); },250);
+/* =========================================================
+   PRINT ENGINE  (पूरा नया — hidden iframe में असली page बनता है)
+   पुराना तरीक़ा (body>* {display:none} + #print-stage) tablet/mobile
+   browsers में blank white page दे रहा था। अब print अपने अलग
+   document में होता है — कभी blank नहीं आएगा।
+========================================================= */
+const PRINT_FONTS='https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Kalam:wght@400;700&display=swap';
+function appCSS(){ return Array.from(document.querySelectorAll('style')).map(s=>s.textContent).join('\n'); }
+function printOverrideCSS(landscape,pageW){
+  return `
+  @page{size:A4 ${landscape?'landscape':'portrait'};margin:6mm;}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;min-height:0!important;width:auto!important;overflow:visible!important;}
+  .bg-3d,.screen,#toast,#popups-root{display:none!important;}
+  #pw{width:${pageW}px;transform-origin:top left;display:block;}
+  #pw .notebook{box-shadow:none!important;animation:none!important;min-height:auto!important;
+    flex-direction:row!important;border:1.5px solid #444;border-radius:0;background:#fff;display:flex;}
+  #pw .nb-page{width:50%!important;padding:8px 10px 12px!important;background:#fff!important;box-shadow:none!important;border-radius:0!important;}
+  #pw .nb-page.right{border-left:1.5px solid #444;}
+  #pw .nb-spine{display:none!important;}
+  #pw .add-strip{display:none!important;}
+  #pw .nb-date{font-size:13px!important;}
+  #pw .nb-col-title{font-size:13px!important;}
+  #pw .nb-col-title .head-amt{font-size:12.5px!important;}
+  #pw .hw-entry{font-size:11.5px!important;}
+  #pw .maal-entry{font-size:10.5px!important;}
+  #pw .total-block{font-size:11.5px!important;}
+  #pw .kharch-divider{font-size:12.5px!important;}
+  #pw .nb-col{min-height:40px!important;padding-bottom:6px!important;}
+  #pw .io-card{margin-top:22px!important;}
+  #pw .att-table{font-size:11px;}
+  #pw .att-table th,#pw .att-table td{border:1px solid #999;padding:3px 3px;}
+  #pw .att-table thead th{position:static!important;}
+  #pw .att-table .st-name{position:static!important;box-shadow:none!important;}
+  #pw .att-wrap{box-shadow:none!important;border:none!important;max-height:none!important;overflow:visible!important;}
+  `;
+}
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document);
+function printDocHTML(innerHTML,landscape,pageW){
+  return `<!DOCTYPE html><html lang="hi"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>SATYAM GOLD</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="${PRINT_FONTS}">
+    <style>${appCSS()}</style>
+    <style>${printOverrideCSS(landscape,pageW)}
+      .pbar{position:fixed;left:0;right:0;top:0;z-index:99;display:flex;gap:10px;justify-content:center;padding:10px;background:#243447;}
+      .pbar button{padding:10px 22px;border:none;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;font-family:'Poppins',sans-serif;}
+      .pbar .go{background:#2ecc71;color:#fff;} .pbar .cl{background:#e9edf3;color:#40506b;}
+      body{padding-top:56px;}
+      @media print{ .pbar{display:none!important;} body{padding-top:0!important;} }
+    </style></head><body>
+    <div class="pbar"><button class="go" onclick="window.print()">🖨️ Print</button><button class="cl" onclick="window.close()">✖ बंद करें</button></div>
+    <div id="pw">${innerHTML}</div></body></html>`;
+}
+function fitPW(doc,pageW,pageH,fit){
+  try{
+    const pw=doc.getElementById('pw'); if(!fit||!pw) return;
+    const h=pw.scrollHeight||1, wd=pw.scrollWidth||pageW;
+    const sc=Math.min(1, pageH/h, pageW/wd);
+    if(sc<1){ pw.style.transform=`scale(${sc})`; pw.style.height=Math.ceil(h*sc)+'px'; }
+  }catch(err){}
+}
+/* भरोसेमंद Print — अपना अलग पूरा document बनता है (blank page वाली दिक़्क़त ख़त्म)
+   iOS/iPad → नयी tab में (वहाँ iframe print काम नहीं करता), बाक़ी सब → hidden iframe */
+function printDocument(innerHTML,{landscape=true,fit=true}={}){
+  const pageW = landscape?1077:745;          // A4 printable @96dpi (6mm margin)
+  const pageH = landscape?748:1055;
+  const html  = printDocHTML(innerHTML,landscape,pageW);
+  toast('🖨️ Print तैयार हो रहा है…');
+
+  if(IS_IOS){
+    const w=window.open('','_blank');
+    if(w){
+      w.document.open(); w.document.write(html); w.document.close();
+      const run=()=>{ fitPW(w.document,pageW,pageH,fit); try{ w.focus(); w.print(); }catch(e){} };
+      const f=(w.document.fonts&&w.document.fonts.ready)?w.document.fonts.ready:Promise.resolve();
+      f.catch(()=>{}).then(()=>setTimeout(run,500));
+      return;
+    }
+    toast('Popup block है — Setting में allow करें');
+  }
+
+  const old=document.getElementById('sg-print-frame'); if(old) old.remove();
+  const fr=document.createElement('iframe');
+  fr.id='sg-print-frame'; fr.setAttribute('aria-hidden','true');
+  fr.style.cssText=`position:fixed;left:-20000px;top:0;width:${pageW+40}px;height:${pageH+300}px;border:0;background:#fff;`;
+  document.body.appendChild(fr);
+  const doc=fr.contentDocument||fr.contentWindow.document;
+  doc.open(); doc.write(html); doc.close();
+  const fire=()=>{
+    fitPW(doc,pageW,pageH,fit);
+    let done=false;
+    const cleanup=()=>{ if(done)return; done=true; setTimeout(()=>{ const f=document.getElementById('sg-print-frame'); if(f) f.remove(); },1000); };
+    try{ fr.contentWindow.addEventListener('afterprint',cleanup); }catch(err){}
+    try{ fr.contentWindow.focus(); fr.contentWindow.print(); }
+    catch(err){ toast('Print नहीं खुला — दोबारा कोशिश करें'); cleanup(); return; }
+    setTimeout(cleanup,120000);   // print dialog खुला रहे तब भी frame ज़िंदा रहे
+  };
+  const start=()=>{
+    const f=(doc.fonts&&doc.fonts.ready)?doc.fonts.ready:Promise.resolve();
+    f.catch(()=>{}).then(()=>setTimeout(fire,300));
+  };
+  if(doc.readyState==='complete') setTimeout(start,150);
+  else fr.addEventListener('load',()=>setTimeout(start,150));
 }
 function printNotebook(db,date,withTotal){
-  const stage=$('#print-stage');
-  stage.innerHTML='';
   const snap=notebookHTML(db,date,withTotal);
-  stage.appendChild(snap.firstElementChild);
-  const T = withTotal? (db.totals||computeTotals(db)) : null;
-  if(T) injectTotals('#print-stage',T);
-  document.body.classList.toggle('print-plain', !withTotal);
-  document.body.classList.remove('receipt-mode');
-  // scale to fit one A4 landscape page (287mm x 200mm printable @96dpi ≈ 1085x756px)
-  requestAnimationFrame(()=>{
-    const h=stage.firstElementChild.scrollHeight||1;
-    const scale=Math.min(1, 740/h);
-    stage.style.setProperty('--pscale',scale);
-    doPrint();
-  });
+  const host=document.createElement('div');
+  host.appendChild(snap.firstElementChild);
+  if(withTotal){
+    // totals को detached DOM में ही inject करो
+    const T=db.totals||computeTotals(db);
+    const q=s=>host.querySelector(s);
+    q('#col-rokad')?.insertAdjacentHTML('beforeend', totalBlockHTML(T.rokadAdd,T.rokadAC,T.rokadFinal,'रोकड + नगदी बिक्री',grandBlockHTML(T)));
+    q('#col-jama')?.insertAdjacentHTML('beforeend', totalBlockHTML(T.jamaAdd,T.jamaAC,T.jamaFinal,'जमा खाते नाम'));
+    q('#col-nagad')?.insertAdjacentHTML('beforeend', nagadBlockHTML(T));
+    q('#col-kharch')?.insertAdjacentHTML('beforeend', `<div class="total-block"><div class="t-line"></div>
+      <div class="t-row green"><span class="t-num">${fmt(T.kharchT)}</span><span class="t-lbl final-name">→ नगद खर्च Total</span></div></div>`);
+  }
+  printDocument(host.innerHTML,{landscape:true,fit:true});
 }
 
 /* triple-click date → direct print (with total) */
@@ -941,7 +1045,7 @@ function printNotebook(db,date,withTotal){
   let c=0,t=null;
   $('#'+id).addEventListener('click',()=>{
     c++; clearTimeout(t);
-    t=setTimeout(()=>{ if(c>=3){ DB.totals=DB.totals||computeTotals(); save(); renderAll(); printNotebook(DB,DATE,true); } c=0; },420);
+    t=setTimeout(()=>{ if(c>=3){ DB.totals=DB.totals||computeTotals(); save(); renderAll(); printNotebook(DB,CUR_DATE,true); } c=0; },420);
   });
 });
 
@@ -1001,9 +1105,9 @@ function openReceipt(){
 }
 function printReceipt(rc){
   const total=rc.items.reduce((a,x)=>a+x.qty*x.rate,0);
-  $('#receipt-print').innerHTML=`<div class="rcpt-paper">
+  const html=`<div class="rcpt-paper">
     <h2>SATYAM GOLD</h2><div class="r-sub">CASH / CREDIT MEMO</div>
-    <div class="rcpt-meta"><span>Receipt No: <b>${rc.no}</b></span><span>${DATE} &nbsp; ${rc.ts}</span></div>
+    <div class="rcpt-meta"><span>Receipt No: <b>${rc.no}</b></span><span>${CUR_DATE} &nbsp; ${rc.ts}</span></div>
     <div class="rcpt-meta"><span>नाम: <b>${esc(rc.name)}</b></span><span>पता: ${esc(rc.address||'—')}</span></div>
     <table><thead><tr><th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>
       ${rc.items.map(x=>`<tr><td>${esc(x.item)} ${esc(x.sub==='चोकर'?'':x.sub)}</td><td>${x.qty}</td><td>${fmt(x.rate)}</td><td>${fmt(x.qty*x.rate)}</td></tr>`).join('')}
@@ -1011,10 +1115,7 @@ function printReceipt(rc){
     </tbody></table>
     <div style="text-align:center;font-size:11px;color:#888;margin-top:10px;">धन्यवाद! — ${rc.pay==='online'?'A/C Paid':'Cash Paid'}</div>
   </div>`;
-  document.body.classList.add('receipt-mode');
-  const cleanup=()=>{ document.body.classList.remove('receipt-mode'); $('#receipt-print').innerHTML=''; window.removeEventListener('afterprint',cleanup); };
-  window.addEventListener('afterprint',cleanup);
-  setTimeout(()=>{ window.print(); setTimeout(cleanup,5000); },250);
+  printDocument(html,{landscape:false,fit:false});
 }
 
 /* =========================================================
@@ -1170,13 +1271,24 @@ $('#att-add-name').addEventListener('click',()=>{
     }
   });
 });
+/* पिछली तारीख़ / lock हुई तारीख़ → 3 बार click करने पर ही admin password खुलेगा
+   (एक-दो बार ग़लती से touch होने पर password on नहीं होगा) */
+let attTapCnt={}, attTapTm=null;
+function attNeed3(key,onThird){
+  attTapCnt[key]=(attTapCnt[key]||0)+1;
+  clearTimeout(attTapTm);
+  const n=attTapCnt[key];
+  if(n>=3){ attTapCnt={}; onThird(); return; }
+  toast(`🔒 पिछली तारीख़ — और ${3-n} बार click करें`);
+  attTapTm=setTimeout(()=>{ attTapCnt={}; },1600);
+}
 $('#att-wrap').addEventListener('click',e=>{
   const cell=e.target.closest('.att-cell'); if(!cell||cell.classList.contains('future')) return;
   const si=+cell.dataset.s, d=+cell.dataset.d, nm=ATT.staff[si];
   const today=new Date().getDate();
   if(d===today && !isAttLocked(MONTH_KEY(),d)){ openMarkChoice(nm,d,false); }
-  else if(d===today){ askAttAdmin(nm,()=>openMarkChoice(nm,d,false)); }
-  else{ askAttAdmin(nm,()=>openMarkChoice(nm,d,true)); }
+  else if(d===today){ attNeed3('t'+si+'_'+d,()=>askAttAdmin(nm,()=>openMarkChoice(nm,d,false))); }
+  else{ attNeed3(si+'_'+d,()=>askAttAdmin(nm,()=>openMarkChoice(nm,d,true))); }
 });
 function openMarkChoice(nm,d,late){
   popup({
@@ -1219,15 +1331,7 @@ function askAttAdmin(nm,onOk){
       c=0; },500); });
 })();
 function printAttendance(mk){
-  const stage=$('#print-stage');
-  stage.innerHTML=`<div class="att-title">SATYAM GOLD \u2014 Attendance (${mk})</div>${attTableHTML(mk,false)}`;
-  document.body.classList.remove('receipt-mode','print-plain');
-  requestAnimationFrame(()=>{
-    const h=stage.scrollHeight||1, w=stage.scrollWidth||1;
-    const scale=Math.min(1, 740/h, 1077/w);
-    stage.style.setProperty('--pscale',scale);
-    doPrint();
-  });
+  printDocument(`<div class="att-title">SATYAM GOLD \u2014 Attendance (${mk})</div>${attTableHTML(mk,false)}`,{landscape:true,fit:true});
 }
 
 /* hook attendance render into navigation */
