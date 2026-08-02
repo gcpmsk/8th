@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satyam Food Product — Wheat Slip (RST / FILL)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ctext y=%2226%22 font-size=%2226%22%3E%F0%9F%8C%BE%3C/text%3E%3C/svg%3E">
+    <style>
+        /* ================= RESET & CORE STYLES ================= */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        body { background-color: #e2e8f0; color: #000; padding: 15px; }
+        .main-wrapper { max-width: 900px; margin: 0 auto; }
+
+        /* ================= TOOLBAR ================= */
+        .toolbar {
+            background: #0f172a; color: #fff; padding: 12px 20px;
+            border-radius: 8px 8px 0 0; display: flex; justify-content: space-between;
+            align-items: center; flex-wrap: wrap; gap: 10px;
+        }
+        .toolbar h2 { font-size: 18px; color: #f59e0b; }
+        .toolbar-buttons { display: flex; gap: 8px; }
+        .btn {
+            padding: 8px 14px; border: none; border-radius: 5px; font-weight: bold;
+            font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-new { background-color: #ef4444; color: white; }
+        .btn-print { background-color: #16a34a; color: white; font-size: 14px; }
+
+        /* ================= BILL CONTAINER ================= */
+        .bill-card {
+            background: #ffffff; padding: 20px; border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 2px solid #000;
+        }
+        .receipt-header-box { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px; }
+        .receipt-header-box h1 { font-size: 24px; font-weight: 900; }
+        .receipt-header-box p { font-size: 12px; font-weight: 600; margin-top: 2px; }
+        .receipt-title { text-align: center; font-size: 15px; font-weight: 800; text-decoration: underline; margin-bottom: 15px; }
+
+        /* ================= INPUT TABLES ================= */
+        .info-table { width: 100%; margin-bottom: 15px; border-collapse: collapse; }
+        .info-table td { padding: 5px; font-size: 12px; }
+        .info-table label { font-weight: bold; white-space: nowrap; }
+        .info-table input { width: 100%; padding: 6px 8px; border: 1px solid #94a3b8; border-radius: 4px; font-weight: 600; }
+        .hi-input { background-color: #fefce8; border-color: #ca8a04 !important; }
+
+        .section-title { font-size: 13px; font-weight: 800; background: #e2e8f0; padding: 6px 10px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 4px; }
+        
+        .grid-layout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px; }
+        .input-box { display: flex; flex-direction: column; gap: 4px; }
+        .input-box label { font-size: 11px; font-weight: 800; color: #334155; }
+        .input-box input { padding: 6px; border: 1px solid #94a3b8; border-radius: 4px; font-weight: 700; text-align: right; }
+        .highlight-input { background: #e0f2fe; border-color: #0284c7 !important; color: #0c4a6e; }
+
+        /* ================= BAGS & DEDUCTION ================= */
+        .bag-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: #f8fafc; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 15px;}
+        
+        .toggle-btn {
+            background: #cbd5e1; color: #334155; padding: 10px 12px; border: 2px solid #94a3b8;
+            border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; transition: 0.2s;
+            grid-column: span 4; font-size: 14px;
+        }
+        .toggle-btn.active { background: #dcfce7; color: #166534; border-color: #22c55e; }
+
+        /* ================= TOTAL SECTION ================= */
+        .calc-panel { background: #fffbeb; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .calc-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; padding: 4px 0;}
+        .calc-row.final { font-size: 16px; font-weight: 900; color: #b45309; border-top: 1px dashed #f59e0b; margin-top: 4px; padding-top: 6px;}
+
+
+        /* ================= APP-STYLE TOPBAR (SATYAM GOLD look) ================= */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap');
+        body { background: linear-gradient(160deg,#fdfcf7,#eef2f7) !important; font-family:'Poppins','Noto Sans Devanagari',Arial,sans-serif; }
+        * { font-family:'Poppins','Noto Sans Devanagari',Arial,sans-serif; }
+        .app-topbar{width:100%;max-width:900px;margin:0 auto 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+        .app-topbar .lt,.app-topbar .rt{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+        .app-btn{border:none;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;transition:.25s;
+            box-shadow:0 6px 14px rgba(0,0,0,.14);color:#fff;letter-spacing:.4px;display:inline-flex;align-items:center;gap:7px;}
+        .app-btn:hover{transform:translateY(-3px);} .app-btn:active{transform:translateY(0);}
+        .app-btn.grey{background:linear-gradient(135deg,#57606f,#2f3542);}
+        .app-btn.gold{background:linear-gradient(135deg,#f39c12,#d35400);}
+        .app-btn.green{background:linear-gradient(135deg,#2ecc71,#1e8449);}
+        .app-btn.blue{background:linear-gradient(135deg,#48dbfb,#0984e3);}
+        .app-btn.red{background:linear-gradient(135deg,#ff7675,#d63031);}
+        .app-date{font-weight:800;letter-spacing:2px;font-size:16px;color:#243447;background:#fff;border:2px solid #e3e9f2;
+            border-radius:12px;padding:9px 18px;box-shadow:0 6px 14px rgba(0,0,0,.07);}
+        .toolbar{background:linear-gradient(135deg,#141e30,#243b55) !important;border-radius:16px 16px 0 0 !important;
+            padding:14px 20px !important;box-shadow:0 10px 24px -14px rgba(0,0,0,.6);}
+        .toolbar h2{font-size:17px;letter-spacing:1px;color:#ffd479 !important;}
+        .bill-card{border:none !important;border-radius:0 0 16px 16px !important;box-shadow:0 22px 46px -22px rgba(31,97,141,.5) !important;}
+        .info-table input,.input-box input{border-radius:8px !important;border:1.6px solid #d8e0ea !important;transition:.2s;}
+        .info-table input:focus,.input-box input:focus{border-color:#0984e3 !important;box-shadow:0 0 0 3px rgba(9,132,227,.13);}
+        .section-title{background:linear-gradient(135deg,#eef3f9,#e2e8f0) !important;border-radius:8px !important;border:none !important;letter-spacing:.6px;}
+
+        /* mode switch */
+        .mode-switch{display:flex;gap:10px;justify-content:center;margin-bottom:14px;flex-wrap:wrap;}
+        .mode-btn{padding:11px 26px;border-radius:14px;border:2.5px solid #e3e9f2;background:#fff;font-weight:800;font-size:15px;cursor:pointer;transition:.22s;color:#57606f;}
+        .mode-btn.on{background:linear-gradient(135deg,#141e30,#243b55);color:#ffd479;border-color:#243b55;box-shadow:0 8px 18px -8px rgba(36,59,85,.8);}
+        .serial-box{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fffbeb;border:1.6px dashed #f59e0b;
+            border-radius:12px;padding:10px 14px;margin-bottom:14px;}
+        .serial-box label{font-weight:800;font-size:13px;color:#92400e;}
+        .serial-box input{width:110px;padding:8px 10px;border:1.6px solid #f59e0b;border-radius:8px;font-weight:800;font-size:16px;text-align:center;}
+        .serial-hint{font-size:12px;color:#92400e;font-weight:600;}
+
+        /* toggle 1/2kg & Unloading */
+        .toggle-btn{background:#e9edf3;color:#40506b;padding:12px 14px;border:2.5px solid #d8e0ea;border-radius:12px;
+            font-weight:800;cursor:pointer;text-align:center;transition:.2s;font-size:14px;width:100%;margin-bottom:14px;}
+        .toggle-btn.active{background:linear-gradient(135deg,#dcfce7,#bbf7d0);color:#166534;border-color:#22c55e;}
+
+        /* FILL — manual weights */
+        .manual-weight-container{background:#f0f9ff;border:2px solid #bae6fd;border-radius:12px;padding:15px;margin-bottom:15px;}
+        .weight-input-row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+        .weight-input-row input{padding:9px;font-size:14px;font-weight:bold;border:1.6px solid #7dd3fc;border-radius:8px;width:150px;}
+        .pills-container{display:flex;flex-wrap:wrap;gap:8px;min-height:40px;}
+        .weight-pill{background:#fff;border:2px solid #bae6fd;padding:5px 12px;border-radius:20px;font-size:13px;font-weight:800;
+            color:#0369a1;display:flex;align-items:center;gap:6px;}
+        .weight-pill span{cursor:pointer;color:#ef4444;font-size:15px;font-weight:bold;}
+        .total-weight-display{background:#dcfce7;color:#166534;border:2px solid #86efac;border-radius:8px;padding:8px 15px;
+            font-size:16px;font-weight:900;text-align:right;display:inline-block;}
+
+        /* ================= PRINT STYLES ================= */
+        #print-container { display: none; }
+        @media print {
+            @page { size: A4 portrait; margin: 4mm; }
+            body, html { background: #fff !important; padding: 0 !important; margin: 0 !important; color: #000 !important; }
+            .no-print, .toolbar, .bill-card { display: none !important; }
+            
+            #print-container.mode-rst .fill-only { display: none !important; }
+            #print-container.mode-fill .rst-only { display: none !important; }
+            .print-wt-breakdown { font-size: 10px; white-space: normal; line-height: 1.4; font-weight: 600; text-align: left; padding: 4px !important; }
+            #print-container { display: flex !important; flex-direction: column; width: 100%; height: 280mm; overflow: hidden; box-sizing: border-box; }
+            
+            .print-receipt-single { flex: 1 1 0; display: flex; flex-direction: column; border: 1.5px solid #000; padding: 8px 12px; margin-bottom: 4px; position: relative; }
+            .print-tag-copy { position: absolute; top: 10px; right: 15px; border: 1.5px solid #000; padding: 2px 8px; font-size: 10px; font-weight: bold; }
+            
+            .print-header h1 { font-size: 22px !important; font-weight: 900; text-align: center; margin-bottom: 2px; }
+            .print-header p { font-size: 11px !important; text-align: center; font-weight: bold; }
+            .print-receipt-title { text-align: center; font-size: 13px; font-weight: bold; text-decoration: underline; margin: 6px 0; }
+            
+            .print-info-table { width: 100%; margin: 6px 0; border-collapse: collapse; }
+            .print-info-table td { padding: 4px; font-size: 11px !important; border: 1px solid #ccc;}
+            .print-info-table strong { font-weight: bold; }
+
+            /* Bag Graphic Details */
+            .bag-graphic-box { border: 1.5px solid #000; border-radius: 50px; padding: 2px 15px; text-align: center; font-weight: bold; font-size: 11px; display: inline-block; background: #f9fafb;}
+            .bag-graphic-title { font-size: 9px; letter-spacing: 2px; border-bottom: 1px solid #000; padding-bottom: 2px; margin-bottom: 2px; }
+
+            /* Items Table */
+            .print-items-wrapper { flex: 1 1 auto; margin-top: 5px; }
+            .print-items-table { width: 100%; border-collapse: collapse; }
+            .print-items-table th, .print-items-table td { border: 1px solid #000 !important; padding: 6px !important; font-size: 12px !important; }
+            .print-items-table th { background-color: #f2f2f2 !important; font-weight: bold; text-align: center;}
+            
+            /* Hide calculations if Tare is empty */
+            .hide-if-gross-only { display: table-cell; }
+            .hide-row-if-gross-only { display: table-row; }
+            .gross-only-mode .hide-if-gross-only { display: none !important; }
+            .gross-only-mode .hide-row-if-gross-only { display: none !important; }
+
+            /* NEW: WRAPPER TO PUSH DEDUCTION TABLE TO RIGHT SIDE */
+            .deduction-wrapper {
+                display: flex;
+                justify-content: flex-end; /* This pushes the box strictly to the Right */
+                width: 100%;
+                margin-top: 5px;
+            }
+
+            .deduction-table { width: 60%; border-collapse: collapse; }
+            .deduction-table td { padding: 4px 6px; font-size: 11px; border: 1px solid #000; }
+            .deduction-table .val-col { text-align: right; font-weight: bold; width: 25%; }
+            .deduction-table .lbl-col { text-align: left; width: 75%; font-weight: bold; }
+
+            .print-footer-wrapper { flex: 0 0 auto; margin-top: auto; border-top: 1px solid #000; padding-top: 6px; }
+            .print-signatures { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; }
+            .print-sig-line { width: 130px; border-top: 1px solid #000; text-align: center; padding-top: 3px; font-weight: bold; font-size: 10px; }
+            
+            .cut-divider { text-align: center; border-top: 1px dashed #000; position: relative; margin: 4px 0; }
+            .cut-divider span { background: #fff; padding: 0 10px; font-size: 9px; font-weight: bold; position: relative; top: -6px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-topbar no-print">
+    <div class="lt"><button class="app-btn grey" onclick="goBackApp()">← Back</button></div>
+    <div class="app-date" id="top-date">--</div>
+    <div class="rt"><button class="app-btn green" onclick="executePrint()">🖨️ Print</button></div>
+</div>
+
+<div class="main-wrapper">
+    <!-- TOOLBAR -->
+    <div class="toolbar no-print">
+        <h2>🌾 WHEAT SLIP — SATYAM FOOD PRODUCT</h2>
+        <div class="toolbar-buttons">
+            <button class="app-btn red" onclick="forceNewBill()">🗑️ New Slip</button>
+            <button class="app-btn green" onclick="executePrint()">🖨️ Print Slip</button>
+        </div>
+    </div>
+
+    <!-- MAIN FORM -->
+    <div class="bill-card no-print">
+        <div class="receipt-header-box">
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p><strong>GSTIN:</strong> 10DWFPD7233GIZI &nbsp;|&nbsp; <strong>FSSAI No:</strong> 10421168000028 &nbsp;|&nbsp; <strong>Mobile:</strong> 9631816666</p>
+        </div>
+        
+        
+
+        <!-- MODE SWITCH + NOTEBOOK SERIAL AUTO-FILL -->
+        <div class="mode-switch no-print">
+            <button type="button" class="mode-btn on" id="mode-rst" onclick="setMode('rst')">⚖️ RST</button>
+            <button type="button" class="mode-btn" id="mode-fill" onclick="setMode('fill')">📦 FILL</button>
+        </div>
+        <div class="serial-box no-print">
+            <label>📔 माल आवत Serial No:</label>
+            <input type="number" id="inp-serial" inputmode="numeric" placeholder="1" oninput="fillFromSerial()">
+            <button type="button" class="app-btn gold" onclick="fillFromSerial(true)">🪄 Auto Fill</button>
+            <span class="serial-hint" id="serial-hint">Notebook (माल आवत खाते) का Serial डालें — नाम, पता, बोरा, वजन, रेट अपने आप भर जाएगा</span>
+        </div>
+<!-- INFO TABLE -->
+        <table class="info-table">
+            <tr>
+                <td style="width: 10%;"><label>SI No:</label></td>
+                <td style="width: 20%;"><input type="text" id="inp-slno" value="01" style="font-weight:bold;"></td>
+                <td style="width: 10%;"><label>RST No:</label></td>
+                <td style="width: 25%;"><input type="text" id="inp-rst" placeholder="RST No" style="font-weight:bold;"></td>
+                <td style="width: 10%;"><label>Date:</label></td>
+                <td style="width: 25%;"><input type="text" id="inp-date" readonly style="background:#f1f5f9; font-weight:bold;"></td>
+            </tr>
+            <tr>
+                <td><label>Farmer:</label></td>
+                <td colspan="2"><input type="text" id="inp-name" placeholder="English Name" oninput="autoTranslate('name')"></td>
+                <td colspan="3"><input type="text" id="inp-name-hi" class="hi-input" placeholder="हिंदी नाम (Auto)"></td>
+            </tr>
+            <tr>
+                <td><label>Address:</label></td>
+                <td colspan="2"><input type="text" id="inp-address" placeholder="English Address" oninput="autoTranslate('address')"></td>
+                <td colspan="3"><input type="text" id="inp-address-hi" class="hi-input" placeholder="हिंदी पता (Auto)"></td>
+            </tr>
+            <tr>
+                <td><label>Driver:</label></td>
+                <td colspan="2"><input type="text" id="inp-driver" placeholder="Driver Name"></td>
+                <td><label>Vehicle:</label></td>
+                <td colspan="2"><input type="text" id="inp-vehicle" placeholder="Vehicle No"></td>
+            </tr>
+        </table>
+
+        <!-- BAG DETAILS -->
+        <div class="section-title">BAGS & DAMAGE DEDUCTIONS (Qty × ₹/Bag)</div>
+        <div class="bag-grid">
+            <div class="input-box">
+                <label>Total Bags</label>
+                <input type="number" id="inp-bags" placeholder="0" oninput="calculateWeight()">
+            </div>
+            <div class="input-box">
+                <label>D-Bags (Dust) & ₹ Cut</label>
+                <div style="display:flex; gap:5px;">
+                    <input type="number" id="inp-d-qty" placeholder="Qty" oninput="calculateWeight()" style="width:50%;">
+                    <input type="number" id="inp-d-rate" placeholder="₹/Bag" oninput="calculateWeight()" style="width:50%;">
+                </div>
+            </div>
+            <div class="input-box">
+                <label>P-Bags (Plastic) & ₹ Cut</label>
+                <div style="display:flex; gap:5px;">
+                    <input type="number" id="inp-p-qty" placeholder="Qty" oninput="calculateWeight()" style="width:50%;">
+                    <input type="number" id="inp-p-rate" placeholder="₹/Bag" oninput="calculateWeight()" style="width:50%;">
+                </div>
+            </div>
+            <div class="input-box">
+                <label>W-Bags (Water) & ₹ Cut</label>
+                <div style="display:flex; gap:5px;">
+                    <input type="number" id="inp-w-qty" placeholder="Qty" oninput="calculateWeight()" style="width:50%;">
+                    <input type="number" id="inp-w-rate" placeholder="₹/Bag" oninput="calculateWeight()" style="width:50%;">
+                </div>
+            </div>
+        </div>
+
+        <!-- WEIGHT DETAILS — RST -->
+        <div id="sec-rst">
+            <div class="section-title">⚖️ RST — WEIGHT & RATE (वजन और रेट)</div>
+            <div class="grid-layout">
+                <div class="input-box">
+                    <label>Gross Wt. (भरा हुआ) Kg</label>
+                    <input type="number" id="inp-gross" placeholder="0.00" oninput="calculateWeight()">
+                </div>
+                <div class="input-box">
+                    <label>Tare Wt. (खाली) Kg</label>
+                    <input type="number" id="inp-tare" placeholder="Leave empty if not weighed" oninput="calculateWeight()">
+                </div>
+                <div class="input-box">
+                    <label>Net Weight (शुद्ध) Kg</label>
+                    <input type="text" id="inp-net" class="highlight-input" placeholder="Auto" readonly>
+                </div>
+                <div class="input-box">
+                    <label>Rate (₹ / Kg)</label>
+                    <input type="number" id="inp-rate" placeholder="0.00" step="any" oninput="calculateWeight()">
+                </div>
+            </div>
+        </div>
+
+        <!-- WEIGHT DETAILS — FILL (manual weights) -->
+        <div id="sec-fill" style="display:none;">
+            <div class="section-title">📦 FILL — MANUAL WEIGHT ENTRY (मैनुअल वजन डालें)</div>
+            <div class="manual-weight-container">
+                <div class="weight-input-row">
+                    <input type="number" id="inp-single-wt" placeholder="Eg: 50" onkeypress="handleWeightEnter(event)">
+                    <button type="button" class="app-btn blue" onclick="addWeight()">➕ Add Wt.</button>
+                    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+                        <label style="font-size:12px;font-weight:800;color:#0369a1;">Rate (₹ / Kg):</label>
+                        <input type="number" id="inp-rate-fill" placeholder="0.00" step="any" oninput="calculateWeight()" style="width:110px;">
+                    </div>
+                </div>
+                <div id="weight-pills-container" class="pills-container"></div>
+                <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+                    <div class="total-weight-display">Total Weighed: <span id="scr-total-weighed">0.00</span> Kg</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1/2kg & UNLOADING TOGGLE (दोनों mode में लगेगा) -->
+        <button type="button" id="toggle-std-deduction" class="toggle-btn no-print" onclick="toggleDeduction()">
+            ❌ 1/2kg &amp; Unloading OFF — (click करें तो 0.5kg/Qtl कटौती + ₹4/बोरा Unloading लगेगा)
+        </button>
+
+        <!-- CALCULATION PANEL -->
+        <div class="calc-panel">
+            <div>
+                <div class="calc-row"><span>Weight Cut (0.5kg/Qtl):</span> <span id="scr-wt-cut">0.00 Kg</span></div>
+                <div class="calc-row"><span>Final Payable Wt:</span> <span id="scr-final-wt">0.00 Kg</span></div>
+                <div class="calc-row"><span>Gross Amount:</span> <span id="scr-gross-amt">₹ 0.00</span></div>
+            </div>
+            <div>
+                <div class="calc-row"><span>Unloading Cut (₹4/Bag):</span> <span id="scr-unload-cut">₹ 0.00</span></div>
+                <div class="calc-row"><span>D/P/W Bag Cut:</span> <span id="scr-bag-cut">₹ 0.00</span></div>
+                <div class="calc-row final"><span>Net Payable:</span> <span id="scr-payable">₹ 0.00</span></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ================= PRINTABLE AREA ================= -->
+<div id="print-container">
+    
+    <!-- 1. ORIGINAL COPY -->
+    <div class="print-receipt-single" id="p1-container">
+        <div class="print-tag-copy">ORIGINAL COPY</div>
+        <div class="print-header">
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p>Vidyardhar, Khagaria | <strong>GSTIN:</strong> 10DWFPD7233GIZI | <strong>Mobile:</strong> 9631816666</p>
+        </div>
+        <div class="print-receipt-title">WHEAT PROCUREMENT SLIP (RST)</div>
+
+        <table class="print-info-table">
+            <tr>
+                <td style="width: 15%;"><strong>SI No / RST:</strong></td>
+                <td style="width: 35%;"><span id="p1-slno"></span> / <span id="p1-rst"></span></td>
+                <td style="width: 15%;"><strong>Date:</strong></td>
+                <td style="width: 35%;"><span id="p1-date"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Farmer Name:</strong></td>
+                <td><span id="p1-name"></span></td>
+                <td><strong>Address:</strong></td>
+                <td><span id="p1-address"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Vehicle No:</strong></td>
+                <td><span id="p1-vehicle"></span></td>
+                <td><strong>Driver Name:</strong></td>
+                <td><span id="p1-driver"></span></td>
+            </tr>
+        </table>
+
+        <div class="print-items-wrapper">
+            <div class="rst-only"><table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Item</th>
+                        <th style="width: 15%;">Bags Detail</th>
+                        <th style="width: 15%;">Gross (Kg)</th>
+                        <th style="width: 15%;">Tare (Kg)</th>
+                        <th class="hide-if-gross-only" style="width: 15%;">Net (Kg)</th>
+                        <!-- Rate column remains visible even in gross-only mode -->
+                        <th style="width: 15%;">Rate (₹/Kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align:center;"><strong>Wheat (गेहूँ)</strong></td>
+                        <td style="text-align:center; padding: 2px !important;">
+                            <div class="bag-graphic-box">
+                                <div class="bag-graphic-title">D P W</div>
+                                <div><span id="p1-bag-tot"></span> = <span id="p1-bag-d"></span>/<span id="p1-bag-p"></span>/<span id="p1-bag-w"></span></div>
+                            </div>
+                        </td>
+                        <td style="text-align:center; font-weight:bold; font-size:14px !important;"><span id="p1-gross"></span></td>
+                        <td style="text-align:center;"><span id="p1-tare"></span></td>
+                        <td class="hide-if-gross-only" style="text-align:center;"><span id="p1-net"></span></td>
+                        <td style="text-align:center;"><span id="p1-rate"></span></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <div class="fill-only">
+            <table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Item</th>
+                        <th style="width: 20%;">Bags Detail</th>
+                        <th style="width: 35%;">Weight Breakdown (Kg)</th>
+                        <th style="width: 15%;">Total Wt (Kg)</th>
+                        <th style="width: 15%;">Rate (₹/Kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align:center;"><strong>Wheat (गेहूँ)</strong></td>
+                        <td style="text-align:center; padding: 2px !important;">
+                            <div class="bag-graphic-box">
+                                <div class="bag-graphic-title">D P W</div>
+                                <div><span id="p1f-bag-tot"></span> = <span id="p1f-bag-d"></span>/<span id="p1f-bag-p"></span>/<span id="p1f-bag-w"></span></div>
+                            </div>
+                        </td>
+                        <td class="print-wt-breakdown" id="p1f-breakdown"></td>
+                        <td style="text-align:center; font-weight:bold; font-size:14px !important;"><span id="p1f-total-wt"></span></td>
+                        <td style="text-align:center;"><span id="p1f-rate"></span></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+
+            <!-- Deductions and Total (Hidden if no Tare) pushed to Right Side -->
+            <div class="deduction-wrapper hide-row-if-gross-only" >
+                <table class="deduction-table">
+                    <tr>
+                        <td class="lbl-col">Gross Amount (Net Wt x Rate):</td>
+                        <td class="val-col"><span id="p1-gross-amt"></span></td>
+                    </tr>
+                    <tr id="p1-row-wt-cut">
+                        <td class="lbl-col">Less: Weight Cut (0.5kg/Qtl) [ <span id="p1-wt-cut-kg"></span> Kg ]:</td>
+                        <td class="val-col">- <span id="p1-wt-cut-rs"></span></td>
+                    </tr>
+                    <tr id="p1-row-unload">
+                        <td class="lbl-col">Less: Unloading Charge (₹4/Bag):</td>
+                        <td class="val-col">- <span id="p1-unload-rs"></span></td>
+                    </tr>
+                    <tr id="p1-row-bag-cut">
+                        <td class="lbl-col">Less: D/P/W Bag Damage Cut:</td>
+                        <td class="val-col">- <span id="p1-bag-cut-rs"></span></td>
+                    </tr>
+                    <tr>
+                        <td class="lbl-col" style="font-size:13px;"><strong>FINAL PAYABLE AMOUNT (₹):</strong></td>
+                        <td class="val-col" style="font-size:14px; background:#f2f2f2;"><strong><span id="p1-final-pay"></span></strong></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="print-footer-wrapper">
+            <div class="print-signatures">
+                <div class="print-sig-line">Farmer / Driver</div>
+                <div class="print-sig-line">Weighbridge Auth.</div>
+                <div class="print-sig-line">Authorised Signatory</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUT DIVIDER -->
+    <div class="cut-divider"><span>✂️ CUT HERE FOR DUPLICATE COPY ✂️</span></div>
+
+    <!-- 2. DUPLICATE COPY -->
+    <div class="print-receipt-single" id="p2-container">
+        <!-- EXACT COPY LOGIC AS ABOVE -->
+        <div class="print-tag-copy">DUPLICATE COPY</div>
+        <div class="print-header">
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p>Vidyardhar, Khagaria | <strong>GSTIN:</strong> 10DWFPD7233GIZI | <strong>Mobile:</strong> 9631816666</p>
+        </div>
+        <div class="print-receipt-title">WHEAT PROCUREMENT SLIP (RST)</div>
+
+        <table class="print-info-table">
+            <tr>
+                <td style="width: 15%;"><strong>SI No / RST:</strong></td>
+                <td style="width: 35%;"><span id="p2-slno"></span> / <span id="p2-rst"></span></td>
+                <td style="width: 15%;"><strong>Date:</strong></td>
+                <td style="width: 35%;"><span id="p2-date"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Farmer Name:</strong></td>
+                <td><span id="p2-name"></span></td>
+                <td><strong>Address:</strong></td>
+                <td><span id="p2-address"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Vehicle No:</strong></td>
+                <td><span id="p2-vehicle"></span></td>
+                <td><strong>Driver Name:</strong></td>
+                <td><span id="p2-driver"></span></td>
+            </tr>
+        </table>
+
+        <div class="print-items-wrapper">
+            <div class="rst-only"><table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Item</th>
+                        <th style="width: 15%;">Bags Detail</th>
+                        <th style="width: 15%;">Gross (Kg)</th>
+                        <th style="width: 15%;">Tare (Kg)</th>
+                        <th class="hide-if-gross-only" style="width: 15%;">Net (Kg)</th>
+                        <th style="width: 15%;">Rate (₹/Kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align:center;"><strong>Wheat (गेहूँ)</strong></td>
+                        <td style="text-align:center; padding: 2px !important;">
+                            <div class="bag-graphic-box">
+                                <div class="bag-graphic-title">D P W</div>
+                                <div><span id="p2-bag-tot"></span> = <span id="p2-bag-d"></span>/<span id="p2-bag-p"></span>/<span id="p2-bag-w"></span></div>
+                            </div>
+                        </td>
+                        <td style="text-align:center; font-weight:bold; font-size:14px !important;"><span id="p2-gross"></span></td>
+                        <td style="text-align:center;"><span id="p2-tare"></span></td>
+                        <td class="hide-if-gross-only" style="text-align:center;"><span id="p2-net"></span></td>
+                        <td style="text-align:center;"><span id="p2-rate"></span></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <div class="fill-only">
+            <table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Item</th>
+                        <th style="width: 20%;">Bags Detail</th>
+                        <th style="width: 35%;">Weight Breakdown (Kg)</th>
+                        <th style="width: 15%;">Total Wt (Kg)</th>
+                        <th style="width: 15%;">Rate (₹/Kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align:center;"><strong>Wheat (गेहूँ)</strong></td>
+                        <td style="text-align:center; padding: 2px !important;">
+                            <div class="bag-graphic-box">
+                                <div class="bag-graphic-title">D P W</div>
+                                <div><span id="p2f-bag-tot"></span> = <span id="p2f-bag-d"></span>/<span id="p2f-bag-p"></span>/<span id="p2f-bag-w"></span></div>
+                            </div>
+                        </td>
+                        <td class="print-wt-breakdown" id="p2f-breakdown"></td>
+                        <td style="text-align:center; font-weight:bold; font-size:14px !important;"><span id="p2f-total-wt"></span></td>
+                        <td style="text-align:center;"><span id="p2f-rate"></span></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+
+            <!-- Deductions and Total (Hidden if no Tare) pushed to Right Side -->
+            <div class="deduction-wrapper hide-row-if-gross-only" >
+                <table class="deduction-table">
+                    <tr>
+                        <td class="lbl-col">Gross Amount (Net Wt x Rate):</td>
+                        <td class="val-col"><span id="p2-gross-amt"></span></td>
+                    </tr>
+                    <tr id="p2-row-wt-cut">
+                        <td class="lbl-col">Less: Weight Cut (0.5kg/Qtl) [ <span id="p2-wt-cut-kg"></span> Kg ]:</td>
+                        <td class="val-col">- <span id="p2-wt-cut-rs"></span></td>
+                    </tr>
+                    <tr id="p2-row-unload">
+                        <td class="lbl-col">Less: Unloading Charge (₹4/Bag):</td>
+                        <td class="val-col">- <span id="p2-unload-rs"></span></td>
+                    </tr>
+                    <tr id="p2-row-bag-cut">
+                        <td class="lbl-col">Less: D/P/W Bag Damage Cut:</td>
+                        <td class="val-col">- <span id="p2-bag-cut-rs"></span></td>
+                    </tr>
+                    <tr>
+                        <td class="lbl-col" style="font-size:13px;"><strong>FINAL PAYABLE AMOUNT (₹):</strong></td>
+                        <td class="val-col" style="font-size:14px; background:#f2f2f2;"><strong><span id="p2-final-pay"></span></strong></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="print-footer-wrapper">
+            <div class="print-signatures">
+                <div class="print-sig-line">Farmer / Driver</div>
+                <div class="print-sig-line">Weighbridge Auth.</div>
+                <div class="print-sig-line">Authorised Signatory</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= JAVASCRIPT ================= -->
+<script>
+    /* ---------- SATYAM GOLD app bridge ---------- */
+    const APP_DATE = (function(){ const d=new Date();
+        return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; })();
+    const WRC_KEY = 'sg_wrcpt_' + APP_DATE;
+    const NB_KEY  = 'sg_nb_' + APP_DATE;
+
+    let MODE = 'rst';                 // 'rst' | 'fill'
+    let manualWeights = [];
+    let isStdDeductionActive = false;
+    let translateTimer;
+
+    function goBackApp(){ location.href = 'index.html#print'; }
+    function loadWrcpts(){ try{ return JSON.parse(localStorage.getItem(WRC_KEY))||[]; }catch(e){ return []; } }
+    function saveWrcpts(a){ try{ localStorage.setItem(WRC_KEY, JSON.stringify(a)); }catch(e){} }
+    function loadNB(){ try{ return JSON.parse(localStorage.getItem(NB_KEY))||null; }catch(e){ return null; } }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        setTodayDate();
+        const q = new URLSearchParams(location.search);
+        const sn = q.get('serial');
+        if(sn){ document.getElementById('inp-serial').value = sn; fillFromSerial(); }
+        calculateWeight();
+    });
+
+    function setTodayDate() {
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2, '0');
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        document.getElementById('inp-date').value = `${dd}/${mm}/${yyyy}`;
+        const td = document.getElementById('top-date');
+        if(td) td.textContent = `${dd}-${mm}-${yyyy}`;
+    }
+
+    function getVal(id) { const el=document.getElementById(id); return el? (parseFloat(el.value)||0) : 0; }
+    function setTxt(id, val) { const el=document.getElementById(id); if(el) el.textContent = val; }
+    function setVal(id, val) { const el=document.getElementById(id); if(el) el.value = (val===null||val===undefined)?'':val; }
+
+    /* ---------- MODE ---------- */
+    function setMode(m){
+        MODE = m;
+        document.getElementById('mode-rst').classList.toggle('on', m==='rst');
+        document.getElementById('mode-fill').classList.toggle('on', m==='fill');
+        document.getElementById('sec-rst').style.display  = (m==='rst')?'block':'none';
+        document.getElementById('sec-fill').style.display = (m==='fill')?'block':'none';
+        calculateWeight();
+    }
+
+    /* ---------- NOTEBOOK (माल आवत खाते) AUTO-FILL ---------- */
+    function fillFromSerial(showAlert){
+        const sn = parseInt(document.getElementById('inp-serial').value);
+        const hint = document.getElementById('serial-hint');
+        if(!sn){ if(showAlert) alert('Serial No डालें'); return; }
+        const nb = loadNB();
+        const list = (nb && Array.isArray(nb.maal)) ? nb.maal : [];
+        const m = list.find(x => Number(x.serial) === sn);
+        if(!m){
+            hint.textContent = '❌ Serial ' + sn + ' — आज के notebook (माल आवत खाते) में नहीं मिला';
+            hint.style.color = '#b91c1c';
+            if(showAlert) alert('Serial ' + sn + ' नहीं मिला');
+            return;
+        }
+        hint.textContent = '✅ Serial ' + sn + ' → ' + (m.name||'') + ' — सब details भर गयीं';
+        hint.style.color = '#166534';
+
+        setVal('inp-slno', String(sn).padStart(2,'0'));
+        setVal('inp-name', m.name||'');
+        setVal('inp-name-hi', m.name||'');
+        setVal('inp-address', m.address||'');
+        setVal('inp-address-hi', m.address||'');
+
+        const isFill = (m.kind||'rst')==='fill';
+        const bora = isFill ? ((m.weights&&m.weights.length)||0) : (m.pic||0);
+        setVal('inp-bags', bora||'');
+        setVal('inp-d-qty', m.dust||'');
+        setVal('inp-p-qty', m.plastic||'');
+        setVal('inp-w-qty', m.wet||'');
+
+        if(isFill){
+            setMode('fill');
+            manualWeights = (m.weights||[]).slice();
+            renderWeights();
+            setVal('inp-rate-fill', (m.rate!==null&&m.rate!==undefined)? m.rate : '');
+            setVal('inp-rate', (m.rate!==null&&m.rate!==undefined)? m.rate : '');
+            setVal('inp-rst','');
+        }else{
+            setMode('rst');
+            manualWeights = []; renderWeights();
+            setVal('inp-rst', m.rst||'');
+            if(m.gross!==null && m.gross!==undefined && m.tare!==null && m.tare!==undefined){
+                setVal('inp-gross', m.gross); setVal('inp-tare', m.tare);
+            }else if(m.nett!==null && m.nett!==undefined){
+                setVal('inp-gross', m.nett); setVal('inp-tare', 0);
+            }else{
+                setVal('inp-gross', m.gross!==null&&m.gross!==undefined? m.gross : ''); setVal('inp-tare','');
+            }
+            setVal('inp-rate', (m.rate!==null&&m.rate!==undefined)? m.rate : '');
+            setVal('inp-rate-fill', (m.rate!==null&&m.rate!==undefined)? m.rate : '');
+        }
+        calculateWeight();
+    }
+
+    /* ---------- Auto Translate ---------- */
+    async function autoTranslate(field) {
+        clearTimeout(translateTimer);
+        translateTimer = setTimeout(async () => {
+            const engText = document.getElementById(`inp-${field}`).value;
+            const hiBox = document.getElementById(`inp-${field}-hi`);
+            if(engText.trim() === '') { hiBox.value = ''; return; }
+            try {
+                const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(engText)}`);
+                const data = await res.json();
+                hiBox.value = data[0][0][0];
+            } catch (error) { hiBox.value = engText; }
+        }, 500);
+    }
+
+    /* ---------- FILL weights ---------- */
+    function handleWeightEnter(e){ if(e.key === 'Enter') addWeight(); }
+    function addWeight(){
+        const input = document.getElementById('inp-single-wt');
+        const val = parseFloat(input.value);
+        if(!isNaN(val) && val > 0){ manualWeights.push(val); input.value=''; renderWeights(); calculateWeight(); }
+        input.focus();
+    }
+    function removeWeight(i){ manualWeights.splice(i,1); renderWeights(); calculateWeight(); }
+    function renderWeights(){
+        const c = document.getElementById('weight-pills-container');
+        if(!c) return;
+        c.innerHTML = '';
+        manualWeights.forEach((wt,idx)=>{
+            const pill = document.createElement('div');
+            pill.className = 'weight-pill';
+            pill.innerHTML = `${wt} kg <span onclick="removeWeight(${idx})">&times;</span>`;
+            c.appendChild(pill);
+        });
+    }
+
+    /* ---------- 1/2kg & Unloading ---------- */
+    function toggleDeduction() {
+        isStdDeductionActive = !isStdDeductionActive;
+        const btn = document.getElementById('toggle-std-deduction');
+        if(isStdDeductionActive) {
+            btn.classList.add('active');
+            btn.innerHTML = '✅ 1/2kg &amp; Unloading ON — (0.5kg/Qtl कटौती + ₹4/बोरा Unloading लग गया)';
+        } else {
+            btn.classList.remove('active');
+            btn.innerHTML = '❌ 1/2kg &amp; Unloading OFF — (click करें तो 0.5kg/Qtl कटौती + ₹4/बोरा Unloading लगेगा)';
+        }
+        calculateWeight();
+    }
+
+    /* ---------- CALCULATION (दोनों mode) ---------- */
+    function currentRate(){ return MODE==='fill' ? getVal('inp-rate-fill') : getVal('inp-rate'); }
+    function currentNet(){
+        if(MODE==='fill'){ return manualWeights.reduce((a,b)=>a+b,0); }
+        const tareStr = document.getElementById('inp-tare').value.trim();
+        const gross = getVal('inp-gross');
+        if(tareStr === '') return null;             // gross-only mode
+        let net = gross - getVal('inp-tare');
+        return net < 0 ? 0 : net;
+    }
+    function calcAll(){
+        const net = currentNet();
+        const netWt = (net===null) ? 0 : net;
+        const rate = currentRate();
+        const bags = getVal('inp-bags');
+        const weightCutKg = (netWt>0 && isStdDeductionActive) ? (netWt/100)*0.5 : 0;
+        const unloadRs     = (netWt>0 && isStdDeductionActive) ? bags*4 : 0;
+        const wtCutRs      = weightCutKg * rate;
+        const finalWt      = Math.max(0, netWt - weightCutKg);
+        const grossAmt     = netWt * rate;
+        const bagCut = (getVal('inp-d-qty')*getVal('inp-d-rate')) +
+                       (getVal('inp-p-qty')*getVal('inp-p-rate')) +
+                       (getVal('inp-w-qty')*getVal('inp-w-rate'));
+        let finalPay = grossAmt - wtCutRs - unloadRs - bagCut;
+        if(finalPay < 0) finalPay = 0;
+        return {net, netWt, rate, bags, weightCutKg, unloadRs, wtCutRs, finalWt, grossAmt, bagCut, finalPay};
+    }
+    function calculateWeight() {
+        // RST net box
+        if(MODE==='rst'){
+            const tareStr = document.getElementById('inp-tare').value.trim();
+            document.getElementById('inp-net').value = (tareStr==='') ? '' : Math.max(0, getVal('inp-gross')-getVal('inp-tare')).toFixed(2);
+        }
+        const t = manualWeights.reduce((a,b)=>a+b,0);
+        setTxt('scr-total-weighed', t.toFixed(2));
+
+        const c = calcAll();
+        setTxt('scr-wt-cut',   c.weightCutKg.toFixed(2) + ' Kg');
+        setTxt('scr-final-wt', c.finalWt.toFixed(2) + ' Kg');
+        setTxt('scr-gross-amt','₹ ' + c.grossAmt.toFixed(2));
+        setTxt('scr-unload-cut','₹ ' + c.unloadRs.toFixed(2));
+        setTxt('scr-bag-cut',  '₹ ' + c.bagCut.toFixed(2));
+        setTxt('scr-payable',  '₹ ' + c.finalPay.toFixed(2));
+    }
+
+    function formatNameStr(eng, hi) {
+        eng=(eng||'').trim(); hi=(hi||'').trim();
+        if(!eng && !hi) return '-';
+        if(eng && !hi) return eng;
+        if(!eng && hi) return hi;
+        if(eng.toLowerCase() === hi.toLowerCase()) return eng;
+        return `${eng} (${hi})`;
+    }
+
+    /* ---------- PRINT DATA ---------- */
+    function syncPrintData() {
+        const nameStr = formatNameStr(document.getElementById('inp-name').value, document.getElementById('inp-name-hi').value);
+        const addrStr = formatNameStr(document.getElementById('inp-address').value, document.getElementById('inp-address-hi').value);
+        const c = calcAll();
+        const isGrossOnly = (MODE==='rst' && document.getElementById('inp-tare').value.trim()==='');
+        const breakdownStr = manualWeights.length ? manualWeights.map(w=>w+'kg').join(', ') : '-';
+
+        document.getElementById('print-container').className = (MODE==='fill') ? 'mode-fill' : 'mode-rst';
+        ['p1','p2'].forEach(p=>{
+            document.getElementById(p+'-container').className = (MODE==='rst' && isGrossOnly)
+                ? 'print-receipt-single gross-only-mode' : 'print-receipt-single';
+
+            setTxt(`${p}-slno`, document.getElementById('inp-slno').value || '-');
+            setTxt(`${p}-rst`,  document.getElementById('inp-rst').value || (MODE==='fill'?'FILL':'-'));
+            setTxt(`${p}-date`, document.getElementById('inp-date').value);
+            setTxt(`${p}-name`, nameStr);
+            setTxt(`${p}-address`, addrStr);
+            setTxt(`${p}-vehicle`, document.getElementById('inp-vehicle').value || '-');
+            setTxt(`${p}-driver`,  document.getElementById('inp-driver').value || '-');
+
+            const bagTot = document.getElementById('inp-bags').value || '0';
+            const bd = document.getElementById('inp-d-qty').value || '0';
+            const bp = document.getElementById('inp-p-qty').value || '0';
+            const bw = document.getElementById('inp-w-qty').value || '0';
+            [``,`f`].forEach(sfx=>{
+                setTxt(`${p}${sfx}-bag-tot`, bagTot);
+                setTxt(`${p}${sfx}-bag-d`, bd);
+                setTxt(`${p}${sfx}-bag-p`, bp);
+                setTxt(`${p}${sfx}-bag-w`, bw);
+            });
+
+            // RST table
+            setTxt(`${p}-gross`, document.getElementById('inp-gross').value || '-');
+            setTxt(`${p}-tare`,  isGrossOnly ? '' : (document.getElementById('inp-tare').value || '-'));
+            setTxt(`${p}-net`,   document.getElementById('inp-net').value || '0.00');
+            setTxt(`${p}-rate`,  c.rate ? c.rate.toFixed(2) : '0.00');
+            // FILL table
+            setTxt(`${p}f-breakdown`, breakdownStr);
+            setTxt(`${p}f-total-wt`,  c.netWt.toFixed(2));
+            setTxt(`${p}f-rate`,      c.rate ? c.rate.toFixed(2) : '0.00');
+
+            // Deductions
+            setTxt(`${p}-gross-amt`,  c.grossAmt.toFixed(2));
+            setTxt(`${p}-wt-cut-kg`,  c.weightCutKg.toFixed(2));
+            setTxt(`${p}-wt-cut-rs`,  c.wtCutRs.toFixed(2));
+            setTxt(`${p}-unload-rs`,  c.unloadRs.toFixed(2));
+            setTxt(`${p}-bag-cut-rs`, c.bagCut.toFixed(2));
+            setTxt(`${p}-final-pay`,  c.finalPay.toFixed(2));
+
+            const row=(id,show)=>{ const el=document.getElementById(id); if(el) el.style.display = show?'table-row':'none'; };
+            row(`${p}-row-wt-cut`,  c.wtCutRs > 0);
+            row(`${p}-row-unload`,  c.unloadRs > 0);
+            row(`${p}-row-bag-cut`, c.bagCut  > 0);
+        });
+    }
+
+    /* ---------- SAVE to App (Wheat Details list) ---------- */
+    function saveSlipToApp(){
+        const c = calcAll();
+        const rec = {
+            no: document.getElementById('inp-slno').value,
+            serial: parseInt(document.getElementById('inp-serial').value) || null,
+            mode: MODE,
+            date: APP_DATE,
+            dateStr: document.getElementById('inp-date').value,
+            rst: document.getElementById('inp-rst').value.trim(),
+            name: document.getElementById('inp-name').value.trim(),
+            nameHi: document.getElementById('inp-name-hi').value.trim(),
+            address: document.getElementById('inp-address').value.trim(),
+            addressHi: document.getElementById('inp-address-hi').value.trim(),
+            driver: document.getElementById('inp-driver').value.trim(),
+            vehicle: document.getElementById('inp-vehicle').value.trim(),
+            bags: document.getElementById('inp-bags').value || '0',
+            d: document.getElementById('inp-d-qty').value || '0',
+            p: document.getElementById('inp-p-qty').value || '0',
+            w: document.getElementById('inp-w-qty').value || '0',
+            gross: document.getElementById('inp-gross').value,
+            tare:  document.getElementById('inp-tare').value,
+            net:   document.getElementById('inp-net').value,
+            weights: manualWeights.slice(),
+            totalWt: c.netWt,
+            rate: c.rate,
+            stdCut: isStdDeductionActive,
+            grossAmt: c.grossAmt,
+            wtCutKg: c.weightCutKg,
+            wtCutRs: c.wtCutRs,
+            unloadRs: c.unloadRs,
+            bagCut: c.bagCut,
+            finalPay: c.finalPay,
+            ts: new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})
+        };
+        const all = loadWrcpts();
+        const i = all.findIndex(x => x.serial && rec.serial && x.serial === rec.serial);
+        if(i >= 0) all[i] = rec; else all.push(rec);
+        saveWrcpts(all);
+    }
+
+    function executePrint() {
+        calculateWeight();
+        syncPrintData();
+        saveSlipToApp();
+        setTimeout(() => { window.print(); }, 300);
+    }
+
+    function forceNewBill() {
+        if(!confirm('नया slip शुरू करें? सारा भरा हुआ data हट जाएगा।')) return;
+        ['inp-serial','inp-rst','inp-name','inp-name-hi','inp-address','inp-address-hi','inp-driver','inp-vehicle',
+         'inp-bags','inp-d-qty','inp-d-rate','inp-p-qty','inp-p-rate','inp-w-qty','inp-w-rate',
+         'inp-gross','inp-tare','inp-net','inp-rate','inp-rate-fill'].forEach(id=>setVal(id,''));
+        let currentSl = parseInt(document.getElementById('inp-slno').value) || 0;
+        setVal('inp-slno', String(currentSl+1).padStart(2,'0'));
+        manualWeights = []; renderWeights();
+        const hint=document.getElementById('serial-hint');
+        hint.textContent='Notebook (माल आवत खाते) का Serial डालें — नाम, पता, बोरा, वजन, रेट अपने आप भर जाएगा';
+        hint.style.color='#92400e';
+        if(isStdDeductionActive) toggleDeduction();
+        calculateWeight();
+    }
+</script>
+</body>
+</html>

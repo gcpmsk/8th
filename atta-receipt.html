@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satyam Food Product - Billing App</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ctext y=%2226%22 font-size=%2226%22%3E%F0%9F%8C%BE%3C/text%3E%3C/svg%3E">
+    <style>
+        /* ================= RESET & CORE STYLES ================= */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        body {
+            background-color: #e2e8f0;
+            color: #000;
+            padding: 15px;
+        }
+
+        .main-wrapper {
+            max-width: 850px;
+            margin: 0 auto;
+        }
+
+        /* ================= CONTROL TOOLBAR ================= */
+        .toolbar {
+            background: #1e293b;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .toolbar h2 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .toolbar-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+
+        .btn-new { background-color: #ef4444; color: white; }
+        .btn-new:hover { background-color: #dc2626; }
+
+        .btn-add { background-color: #2563eb; color: white; }
+        .btn-add:hover { background-color: #1d4ed8; }
+
+        .btn-status { background-color: #f59e0b; color: white; }
+        .btn-status:hover { background-color: #d97706; }
+
+        .btn-print { background-color: #16a34a; color: white; font-size: 14px; }
+        .btn-print:hover { background-color: #15803d; }
+
+        .btn-remove {
+            background-color: #ef4444;
+            color: white;
+            padding: 4px 10px;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+        .btn-remove:hover { background-color: #dc2626; }
+
+        .status-pill {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+        .status-pill.due { background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+        .status-pill.paid { background-color: #dcfce7; color: #166534; border: 1px solid #4ade80; }
+
+        /* ================= SCREEN BILL CONTAINER ================= */
+        .bill-card {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border: 2px solid #000;
+        }
+
+        /* HEADER */
+        .receipt-header-box {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+            position: relative;
+        }
+
+        .receipt-header-box h1 {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #000;
+        }
+
+        .receipt-header-box p {
+            font-size: 12px;
+            font-weight: 600;
+            color: #000;
+            margin-top: 2px;
+        }
+
+        /* INFO GRID */
+        .info-table {
+            width: 100%;
+            margin-bottom: 12px;
+            border-collapse: collapse;
+        }
+
+        .info-table td {
+            padding: 4px 6px;
+            vertical-align: middle;
+            font-size: 12px;
+        }
+
+        .info-table label {
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .info-table input {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid #94a3b8;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .info-table input:focus {
+            border-color: #2563eb;
+            background-color: #f8fafc;
+        }
+
+        .hi-input {
+            background-color: #fefce8;
+            border-color: #ca8a04 !important;
+        }
+
+        /* ITEMS TABLE */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+        }
+
+        .items-table th, .items-table td {
+            border: 1px solid #000;
+            padding: 6px 8px;
+            font-size: 13px;
+        }
+
+        .items-table th {
+            background-color: #f1f5f9;
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .part-textarea {
+            width: 100%;
+            resize: none;
+            padding: 6px;
+            border: 1px solid #94a3b8;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            outline: none;
+        }
+        .part-textarea:focus { border-color: #2563eb; }
+
+        .btn-dropdown {
+            background: #cbd5e1;
+            border: 1px solid #94a3b8;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            height: 100%;
+        }
+        .btn-dropdown:hover { background: #94a3b8; }
+
+        .table-input-num {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #94a3b8;
+            border-radius: 4px;
+            text-align: right;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .total-row-td {
+            font-size: 15px;
+            font-weight: 900;
+            text-align: right;
+            padding: 8px;
+            background-color: #f8fafc;
+        }
+
+        /* SCREEN FOOTER */
+        .screen-footer {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #000;
+        }
+
+        .bank-details-center {
+            text-align: center;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 25px;
+        }
+
+        .signatures-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .sig-line {
+            width: 160px;
+            border-top: 1px solid #000;
+            text-align: center;
+            padding-top: 5px;
+        }
+
+        /* ================= MODALS ================= */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); display: none;
+            justify-content: center; align-items: center; z-index: 9999;
+        }
+        .modal-box {
+            background: #ffffff; width: 90%; max-width: 420px;
+            border-radius: 8px; padding: 20px; border: 2px solid #000;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px;
+        }
+        .modal-header h3 { font-size: 16px; font-weight: 800; }
+        .close-btn { background: none; border: none; font-size: 22px; font-weight: bold; cursor: pointer; }
+        
+        .grid-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .option-item-btn {
+            padding: 12px 8px; border: 1px solid #000; background: #f8fafc;
+            font-weight: 700; font-size: 13px; border-radius: 6px; cursor: pointer;
+            text-align: center; transition: all 0.15s;
+        }
+        .option-item-btn:hover { background: #1e293b; color: #fff; }
+
+
+        /* ================= APP-STYLE TOPBAR (SATYAM GOLD look) ================= */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap');
+        body { background: linear-gradient(160deg,#fdfcf7,#eef2f7) !important; font-family:'Poppins','Noto Sans Devanagari',Arial,sans-serif; }
+        * { font-family:'Poppins','Noto Sans Devanagari',Arial,sans-serif; }
+        .app-topbar{
+            width:100%; max-width:850px; margin:0 auto 12px; display:flex; align-items:center;
+            justify-content:space-between; gap:10px; flex-wrap:wrap;
+        }
+        .app-topbar .lt,.app-topbar .rt{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+        .app-btn{
+            border:none;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;
+            transition:.25s;box-shadow:0 6px 14px rgba(0,0,0,.14);color:#fff;letter-spacing:.4px;
+            display:inline-flex;align-items:center;gap:7px;
+        }
+        .app-btn:hover{transform:translateY(-3px);}
+        .app-btn:active{transform:translateY(0);}
+        .app-btn.grey{background:linear-gradient(135deg,#57606f,#2f3542);}
+        .app-btn.gold{background:linear-gradient(135deg,#f39c12,#d35400);}
+        .app-btn.green{background:linear-gradient(135deg,#2ecc71,#1e8449);}
+        .app-btn.blue{background:linear-gradient(135deg,#48dbfb,#0984e3);}
+        .app-btn.red{background:linear-gradient(135deg,#ff7675,#d63031);}
+        .app-btn.purple{background:linear-gradient(135deg,#a29bfe,#6c5ce7);}
+        .app-date{
+            font-weight:800;letter-spacing:2px;font-size:16px;color:#243447;background:#fff;
+            border:2px solid #e3e9f2;border-radius:12px;padding:9px 18px;box-shadow:0 6px 14px rgba(0,0,0,.07);
+        }
+        .toolbar{
+            background:linear-gradient(135deg,#141e30,#243b55) !important;border-radius:16px 16px 0 0 !important;
+            padding:14px 20px !important;box-shadow:0 10px 24px -14px rgba(0,0,0,.6);
+        }
+        .toolbar h2{font-size:17px;letter-spacing:1px;color:#ffd479;}
+        .status-pill{cursor:pointer;user-select:none;box-shadow:0 4px 10px rgba(0,0,0,.18);}
+        .bill-card{border:none !important;border-radius:0 0 16px 16px !important;box-shadow:0 22px 46px -22px rgba(31,97,141,.5) !important;}
+        .info-table input,.part-textarea,.table-input-num{border-radius:8px !important;border:1.6px solid #d8e0ea !important;transition:.2s;}
+        .info-table input:focus,.part-textarea:focus,.table-input-num:focus{border-color:#0984e3 !important;box-shadow:0 0 0 3px rgba(9,132,227,.13);}
+        .items-table th{background:linear-gradient(135deg,#eef3f9,#e2e8f0) !important;}
+        .btn-dropdown{border-radius:8px !important;background:linear-gradient(135deg,#dfe6ee,#c9d4e0) !important;}
+        .option-item-btn{border-radius:10px !important;border:2px solid #e3e9f2 !important;}
+        .option-item-btn:hover{background:linear-gradient(135deg,#141e30,#243b55) !important;}
+        .modal-box{border:none !important;border-radius:18px !important;}
+        .saved-note{font-size:12px;color:#16a34a;font-weight:700;}
+
+        /* ================= PRINT STYLES (A4 FULL PAGE + NO BLANK SPACE) ================= */
+        #print-container { display: none; }
+
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 4mm;
+            }
+
+            body, html {
+                background: #fff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                color: #000 !important;
+            }
+
+            .no-print, .toolbar, .bill-card, .modal-overlay {
+                display: none !important;
+            }
+
+            /* Height fixed to exactly fit 1 page on Android print spoolers */
+            #print-container {
+                display: flex !important;
+                flex-direction: column;
+                width: 100%;
+                height: 280mm; 
+                overflow: hidden;
+                box-sizing: border-box;
+            }
+
+            /* --- TOP SLIP SECTION --- */
+            .print-slip-box {
+                flex: 0 0 auto;
+                border: 1.5px solid #000;
+                padding: 6px 8px;
+                margin-bottom: 4px;
+                background: #fff;
+            }
+            .slip-top-row {
+                display: flex;
+                justify-content: space-between;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 4px;
+                margin-bottom: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            .slip-items-area {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            .slip-badge {
+                border: 1.5px solid #000;
+                padding: 4px 8px;
+                border-radius: 3px;
+                font-size: 12px;
+                font-weight: 900;
+            }
+
+            /* --- RECEIPT SECTIONS --- */
+            .print-receipt-single {
+                flex: 1 1 0; 
+                display: flex;
+                flex-direction: column;
+                border: 1.5px solid #000;
+                padding: 8px 12px;
+                margin-bottom: 4px;
+                position: relative;
+            }
+
+            .print-tag-status { position: absolute; top: 8px; left: 12px; border: 1.5px solid #000; padding: 2px 6px; font-size: 11px; font-weight: bold; }
+            .print-tag-copy { position: absolute; top: 8px; right: 12px; border: 1.5px solid #000; padding: 2px 6px; font-size: 10px; font-weight: bold; }
+
+            .print-header h1 { font-size: 22px !important; font-weight: 900; text-align: center; margin-bottom: 2px; letter-spacing: 0.5px; }
+            .print-header p { font-size: 11px !important; text-align: center; line-height: 1.2; font-weight: bold; }
+
+            .print-info-table { width: 100%; margin: 6px 0; border-collapse: collapse; }
+            .print-info-table td { padding: 3px 6px !important; font-size: 12px !important; }
+            .print-info-table strong { font-weight: bold; }
+
+            /* MAGIC FIX FOR BLANK SPACE: Wrapper fills available space */
+            .print-items-wrapper { 
+                flex: 1 1 auto; 
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* Table stretches to 100% height of wrapper */
+            .print-items-table { 
+                width: 100%; 
+                border-collapse: collapse; 
+                margin-bottom: 0; 
+                height: 100%; 
+            }
+            
+            .print-items-table th, .print-items-table td { 
+                border: 1px solid #000 !important; 
+                padding: 5px 6px !important; 
+                font-size: 12px !important; 
+            }
+            .print-items-table th { background-color: #f2f2f2 !important; font-weight: bold; text-transform: uppercase; }
+
+            /* Forces header and footer rows to stay compact, causing tbody cells to stretch */
+            .print-items-table thead th, 
+            .print-items-table tfoot td { 
+                height: 1px; 
+            }
+            
+            /* The expanded table body cells will keep their text nicely at the top */
+            .print-items-table tbody td {
+                vertical-align: top;
+                padding-top: 8px !important;
+            }
+
+            .print-footer-wrapper {
+                flex: 0 0 auto;
+                margin-top: 10px;
+                border-top: 1px solid #000;
+                padding-top: 6px;
+            }
+
+            .print-bank-details {
+                text-align: center;
+                font-size: 12px;
+                font-weight: bold;
+                margin-bottom: 15px;
+            }
+
+            .print-signatures {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-end;
+            }
+
+            .print-sig-line {
+                width: 140px;
+                border-top: 1px solid #000;
+                text-align: center;
+                padding-top: 3px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+
+            /* Divider */
+            .cut-divider {
+                text-align: center;
+                border-top: 1px dashed #000;
+                position: relative;
+                margin: 4px 0;
+            }
+            .cut-divider span {
+                background: #fff;
+                padding: 0 10px;
+                font-size: 10px;
+                font-weight: bold;
+                position: relative;
+                top: -6px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-topbar no-print">
+    <div class="lt"><button class="app-btn grey" onclick="goBackApp()">← Back</button></div>
+    <div class="app-date" id="top-date">--</div>
+    <div class="rt"><button class="app-btn green" onclick="openPrintConfirm()">🖨️ Print</button></div>
+</div>
+
+<div class="main-wrapper">
+    <!-- TOOLBAR -->
+    <div class="toolbar no-print">
+        <h2>🧾 ATTA RECEIPT — SATYAM FOOD PRODUCT</h2>
+        <div class="toolbar-buttons">
+            <span id="status-pill-display" class="status-pill due" onclick="toggleStatus()">STATUS: DUE</span>
+            <button class="app-btn red" onclick="forceNewBill()">🗑️ New Bill</button>
+            <button class="app-btn blue" onclick="addNewRow()">➕ Add Item</button>
+            <button class="app-btn green" onclick="openPrintConfirm()">🖨️ Print Receipt</button>
+        </div>
+    </div>
+
+    <!-- MAIN FORM RECEIPT -->
+    <div class="bill-card no-print">
+        <div class="receipt-header-box">
+            <div id="screen-status-stamp" style="position: absolute; left: 0; top: 0; border: 1.5px solid #000; padding: 3px 10px; font-weight: 900; font-size: 12px;">DUE</div>
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p>Vidyardhar, Khagaria</p>
+            <p><strong>GSTIN:</strong> 10DWFPD7233GIZI &nbsp;|&nbsp; <strong>FSSAI No:</strong> 10421168000028 &nbsp;|&nbsp; <strong>Mobile:</strong> 9631816666</p>
+        </div>
+
+        <!-- INFO TABLE (Hindi Inputs VISIBLE for Verification) -->
+        <table class="info-table">
+            <tr>
+                <td style="width: 10%;"><label>SI No:</label></td>
+                <td style="width: 40%;"><input type="text" id="inp-slno" value="01" readonly style="background: #f1f5f9; width: 90%; font-weight:bold;"></td>
+                <td style="width: 10%;"><label>Date:</label></td>
+                <td style="width: 40%;"><input type="text" id="inp-date" readonly style="background: #f1f5f9; width: 100%; font-weight:bold;"></td>
+            </tr>
+            <tr>
+                <td><label>Name (Eng):</label></td>
+                <td><input type="text" id="inp-name" placeholder="Name in English" style="width: 90%;" oninput="autoTranslate('name')"></td>
+                <td><label>नाम (Hindi):</label></td>
+                <td><input type="text" id="inp-name-hi" class="hi-input" placeholder="हिंदी नाम (यहाँ चेक करें)" style="width: 100%;"></td>
+            </tr>
+            <tr>
+                <td><label>Address (Eng):</label></td>
+                <td><input type="text" id="inp-address" placeholder="Address in English" style="width: 90%;" oninput="autoTranslate('address')"></td>
+                <td><label>पता (Hindi):</label></td>
+                <td><input type="text" id="inp-address-hi" class="hi-input" placeholder="हिंदी पता (यहाँ चेक करें)" style="width: 100%;"></td>
+            </tr>
+            <tr>
+                <td><label>Driver Name:</label></td>
+                <td><input type="text" id="inp-driver" placeholder="Driver Name" style="width: 90%;"></td>
+                <td><label>Vehicle No:</label></td>
+                <td><input type="text" id="inp-vehicle" placeholder="Vehicle Number" style="width: 100%;"></td>
+            </tr>
+        </table>
+
+        <!-- ITEMS TABLE -->
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 5%;">#</th>
+                    <th style="width: 48%;">Particulars</th>
+                    <th style="width: 13%;">Qty</th>
+                    <th style="width: 15%;">Rate</th>
+                    <th style="width: 15%;">Amount</th>
+                    <th style="width: 4%;" class="no-print"></th>
+                </tr>
+            </thead>
+            <tbody id="items-tbody">
+                <!-- Rows dynamically injected here -->
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" class="total-row-td">Total Amount (₹):</td>
+                    <td id="screen-grand-total" style="text-align: right; font-weight: 900; font-size: 16px;">0.00</td>
+                    <td class="no-print"></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <!-- SCREEN FOOTER -->
+        <div class="screen-footer">
+            <div class="bank-details-center">
+                Bank Details: A/c No: 60440573620, IFSC: MAHB0002230
+            </div>
+            <div class="signatures-row">
+                <div class="sig-line">Receiver</div>
+                <div class="sig-line">Authorised Signatory</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= MODALS ================= -->
+<div id="modal-category" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>Select Item Category</h3>
+            <button class="close-btn" onclick="closeModal('modal-category')">&times;</button>
+        </div>
+        <div class="grid-options">
+            <button class="option-item-btn" onclick="chooseCategory('Atta')">🌾 Atta</button>
+            <button class="option-item-btn" onclick="chooseCategory('Sattu')">🥣 Sattu</button>
+            <button class="option-item-btn" onclick="chooseCategory('Besan')">🟡 Besan</button>
+            <button class="option-item-btn" onclick="chooseCategory('Chokar')">🌾 Chokar</button>
+            <button class="option-item-btn" onclick="chooseCategory('Jut Bora')">📦 Jut Bora</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal-subcategory" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="subcat-modal-title">Select Variety</h3>
+            <button class="close-btn" onclick="closeModal('modal-subcategory')">&times;</button>
+        </div>
+        <div id="subcat-options-grid" class="grid-options"></div>
+    </div>
+</div>
+
+<div id="modal-packaging" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="pkg-modal-title">Select Packaging</h3>
+            <button class="close-btn" onclick="closeModal('modal-packaging')">&times;</button>
+        </div>
+        <div class="grid-options">
+            <button class="option-item-btn" onclick="choosePackaging('Bora')">📦 Bora</button>
+            <button class="option-item-btn" onclick="choosePackaging('Thaila')">🛍️ Thaila</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal-print-confirm" class="modal-overlay">
+    <div class="modal-box" style="text-align: center;">
+        <div class="modal-header">
+            <h3>Final Print Receipt</h3>
+            <button class="close-btn" onclick="closeModal('modal-print-confirm')">&times;</button>
+        </div>
+        <p style="margin: 15px 0; font-size: 14px; color: #dc2626; font-weight: bold;">
+            ⚠️ Ensure Paper Size is set to "A4" in your Print settings.
+        </p>
+        <p style="margin: 10px 0; font-size: 13px; color: #334155;">
+            After printing, the form will reset and Serial No will increase.
+        </p>
+        <div style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
+            <button class="app-btn grey" onclick="closeModal('modal-print-confirm')">Cancel</button>
+            <button class="app-btn green" onclick="executeFinalPrint()">🖨️ Print Now</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PRINTABLE AREA ================= -->
+<div id="print-container">
+    
+    <!-- 0. TOP DISPATCH SLIP (HINDI + PARTICULARS) -->
+    <div class="print-slip-box">
+        <div class="slip-top-row">
+            <div><strong>नाम:</strong> <span id="slip-name-hi"></span></div>
+            <div><strong>पता:</strong> <span id="slip-address-hi"></span></div>
+        </div>
+        <div class="slip-items-area" id="slip-items-list">
+            <!-- Format injected here: ATTA 18KG - 58 -->
+        </div>
+    </div>
+
+    <!-- CUT DIVIDER -->
+    <div class="cut-divider">
+        <span>✂️ CUT HERE FOR ORIGINAL ✂️</span>
+    </div>
+
+    <!-- 1. ORIGINAL RECEIPT -->
+    <div class="print-receipt-single">
+        <div class="print-tag-status" id="p1-status">DUE</div>
+        <div class="print-tag-copy">ORIGINAL COPY</div>
+        
+        <div class="print-header">
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p>Vidyardhar, Khagaria<br>
+            <strong>GSTIN:</strong> 10DWFPD7233GIZI &nbsp;|&nbsp; <strong>FSSAI No:</strong> 10421168000028 &nbsp;|&nbsp; <strong>Mobile:</strong> 9631816666</p>
+        </div>
+
+        <table class="print-info-table">
+            <tr>
+                <td style="width: 12%;"><strong>SI No:</strong></td>
+                <td style="width: 38%;"><span id="p1-slno"></span></td>
+                <td style="width: 12%;"><strong>Date:</strong></td>
+                <td style="width: 38%;"><span id="p1-date"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Name:</strong></td>
+                <td><span id="p1-name"></span></td>
+                <td><strong>Address:</strong></td>
+                <td><span id="p1-address"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Driver Name:</strong></td>
+                <td><span id="p1-driver"></span></td>
+                <td><strong>Vehicle No:</strong></td>
+                <td><span id="p1-vehicle"></span></td>
+            </tr>
+        </table>
+
+        <!-- This wrapper expands to cover the blank space -->
+        <div class="print-items-wrapper">
+            <table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 6%;">#</th>
+                        <th style="width: 50%;">Particulars</th>
+                        <th style="width: 14%; text-align: right;">Qty</th>
+                        <th style="width: 14%; text-align: right;">Rate</th>
+                        <th style="width: 16%; text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody id="p1-tbody"></tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="4" style="text-align: right; font-weight: bold; background: #f9fafb;">Total Amount (₹):</td>
+                        <td id="p1-total" style="text-align: right; font-weight: bold; background: #f9fafb;">0.00</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Print Footer Wrapper is pushed to bottom via flex layout -->
+        <div class="print-footer-wrapper">
+            <div class="print-bank-details">
+                Bank Details: A/c No: 60440573620, IFSC: MAHB0002230
+            </div>
+            <div class="print-signatures">
+                <div class="print-sig-line">Receiver</div>
+                <div class="print-sig-line">Authorised Signatory</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUT DIVIDER -->
+    <div class="cut-divider">
+        <span>✂️ CUT HERE FOR DUPLICATE COPY ✂️</span>
+    </div>
+
+    <!-- 2. DUPLICATE RECEIPT -->
+    <div class="print-receipt-single">
+        <div class="print-tag-status" id="p2-status">DUE</div>
+        <div class="print-tag-copy">DUPLICATE COPY</div>
+        
+        <div class="print-header">
+            <h1>SATYAM FOOD PRODUCT</h1>
+            <p>Vidyardhar, Khagaria<br>
+            <strong>GSTIN:</strong> 10DWFPD7233GIZI &nbsp;|&nbsp; <strong>FSSAI No:</strong> 10421168000028 &nbsp;|&nbsp; <strong>Mobile:</strong> 9631816666</p>
+        </div>
+
+        <table class="print-info-table">
+            <tr>
+                <td style="width: 12%;"><strong>SI No:</strong></td>
+                <td style="width: 38%;"><span id="p2-slno"></span></td>
+                <td style="width: 12%;"><strong>Date:</strong></td>
+                <td style="width: 38%;"><span id="p2-date"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Name:</strong></td>
+                <td><span id="p2-name"></span></td>
+                <td><strong>Address:</strong></td>
+                <td><span id="p2-address"></span></td>
+            </tr>
+            <tr>
+                <td><strong>Driver Name:</strong></td>
+                <td><span id="p2-driver"></span></td>
+                <td><strong>Vehicle No:</strong></td>
+                <td><span id="p2-vehicle"></span></td>
+            </tr>
+        </table>
+
+        <!-- This wrapper expands to cover the blank space -->
+        <div class="print-items-wrapper">
+            <table class="print-items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 6%;">#</th>
+                        <th style="width: 50%;">Particulars</th>
+                        <th style="width: 14%; text-align: right;">Qty</th>
+                        <th style="width: 14%; text-align: right;">Rate</th>
+                        <th style="width: 16%; text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody id="p2-tbody"></tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="4" style="text-align: right; font-weight: bold; background: #f9fafb;">Total Amount (₹):</td>
+                        <td id="p2-total" style="text-align: right; font-weight: bold; background: #f9fafb;">0.00</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="print-footer-wrapper">
+            <div class="print-bank-details">
+                Bank Details: A/c No: 60440573620, IFSC: MAHB0002230
+            </div>
+            <div class="print-signatures">
+                <div class="print-sig-line">Receiver</div>
+                <div class="print-sig-line">Authorised Signatory</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= JAVASCRIPT ================= -->
+<script>
+    let currentSlNo = 1;
+    let currentStatus = 'DUE';
+    let targetRowIndex = null;
+    let selectedSubcategoryItem = '';
+    let translateTimer;
+
+    const subcategoriesMap = {
+        'Atta': ['Atta Gold', 'Atta 18kg', 'Atta 10kg', 'Atta 5kg', 'Atta 47kg', 'Atta 50kg'],
+        'Sattu': ['Sattu 200g', 'Sattu 500g'],
+        'Besan': ['Besan 200g', 'Besan 500g'],
+        'Chokar': ['Chokar 25kg', 'Chokar 40kg', 'Chokar 50kg'],
+        'Jut Bora': ['Jut Bora (Fresh)', 'Jut Bora (Normal)']
+    };
+
+    /* ---------- SATYAM GOLD app bridge ---------- */
+    const APP_DATE = (function(){ const d=new Date();
+        return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; })();
+    const ARC_KEY = 'sg_arcpt_' + APP_DATE;
+    function loadArcpts(){ try{ return JSON.parse(localStorage.getItem(ARC_KEY))||[]; }catch(e){ return []; } }
+    function saveArcpts(a){ try{ localStorage.setItem(ARC_KEY, JSON.stringify(a)); }catch(e){} }
+    function goBackApp(){ location.href = 'index.html#print'; }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        setTodayDate();
+        currentSlNo = loadArcpts().length + 1;
+        document.getElementById('inp-slno').value = formatSl(currentSlNo);
+        addNewRow(); 
+    });
+
+    function setTodayDate() {
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2, '0');
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        document.getElementById('inp-date').value = `${dd}/${mm}/${yyyy}`;
+        const td = document.getElementById('top-date');
+        if(td) td.textContent = `${dd}-${mm}-${yyyy}`;
+    }
+
+    /* पूरा receipt localStorage में save → App के Print screen के "Receipt Details" में दिखेगा */
+    function saveReceiptToApp(){
+        const tbody = document.getElementById('items-tbody');
+        const items = [];
+        for (let i = 0; i < tbody.children.length; i++) {
+            const t = document.getElementById(`part-text-input-${i}`);
+            const q = document.getElementById(`qty-${i}`);
+            const r = document.getElementById(`rate-${i}`);
+            const a = document.getElementById(`amount-${i}`);
+            const name = t ? t.value.trim() : '';
+            const qty  = q ? q.value : '';
+            if(!name && !qty) continue;
+            items.push({ name, qty, rate: r? r.value : '', amount: a? a.textContent : '0.00' });
+        }
+        if(!items.length) return;
+        const rec = {
+            no: document.getElementById('inp-slno').value,
+            date: APP_DATE,
+            dateStr: document.getElementById('inp-date').value,
+            name: document.getElementById('inp-name').value.trim(),
+            nameHi: document.getElementById('inp-name-hi').value.trim(),
+            address: document.getElementById('inp-address').value.trim(),
+            addressHi: document.getElementById('inp-address-hi').value.trim(),
+            driver: document.getElementById('inp-driver').value.trim(),
+            vehicle: document.getElementById('inp-vehicle').value.trim(),
+            status: currentStatus,
+            items,
+            total: document.getElementById('screen-grand-total').textContent,
+            ts: new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})
+        };
+        const all = loadArcpts();
+        all.push(rec);
+        saveArcpts(all);
+    }
+
+    function formatSl(num) { return String(num).padStart(2, '0'); }
+
+    // ====== HINDI TRANSLATION (Auto & Visible) ============
+    async function autoTranslate(field) {
+        clearTimeout(translateTimer);
+        translateTimer = setTimeout(async () => {
+            const engText = document.getElementById(`inp-${field}`).value;
+            const hiBox = document.getElementById(`inp-${field}-hi`);
+            
+            if(engText.trim() === '') {
+                hiBox.value = '';
+                return;
+            }
+            try {
+                const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(engText)}`);
+                const data = await res.json();
+                hiBox.value = data[0][0][0]; // Update visible Hindi box
+            } catch (error) {
+                // If offline or error, fallback to English text inside the Hindi box
+                hiBox.value = engText;
+            }
+        }, 600); // 600ms delay to allow typing
+    }
+    // ==========================================
+
+    function toggleStatus() {
+        currentStatus = (currentStatus === 'DUE') ? 'PAID' : 'DUE';
+        const pill = document.getElementById('status-pill-display');
+        const stamp = document.getElementById('screen-status-stamp');
+        
+        if (currentStatus === 'PAID') {
+            pill.textContent = 'STATUS: PAID';
+            pill.className = 'status-pill paid';
+            stamp.textContent = 'PAID';
+        } else {
+            pill.textContent = 'STATUS: DUE';
+            pill.className = 'status-pill due';
+            stamp.textContent = 'DUE';
+        }
+    }
+
+    function addNewRow() {
+        const tbody = document.getElementById('items-tbody');
+        const idx = tbody.children.length;
+
+        const tr = document.createElement('tr');
+        tr.id = `row-${idx}`;
+        tr.innerHTML = `
+            <td style="text-align: center; font-weight: bold;" class="row-sl-num">${idx + 1}</td>
+            <td>
+                <div style="display: flex; gap: 4px; align-items: stretch; height: 100%;">
+                    <textarea id="part-text-input-${idx}" class="part-textarea" rows="2" placeholder="Item Name"></textarea>
+                    <button type="button" class="btn-dropdown" onclick="openCategoryModal(${idx})">▼</button>
+                </div>
+            </td>
+            <td>
+                <input type="number" class="table-input-num" id="qty-${idx}" min="0" step="any" placeholder="0" oninput="calculateRow(${idx})">
+            </td>
+            <td>
+                <input type="number" class="table-input-num" id="rate-${idx}" min="0" step="any" placeholder="0.00" oninput="calculateRow(${idx})">
+            </td>
+            <td id="amount-${idx}" style="text-align: right; font-weight: bold; padding-right: 8px;">
+                0.00
+            </td>
+            <td class="no-print" style="text-align: center;">
+                <button type="button" class="btn-remove" onclick="removeRow(${idx})">✕</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+        reindexTable();
+    }
+
+    function removeRow(idx) {
+        const row = document.getElementById(`row-${idx}`);
+        if (row) {
+            row.remove();
+            reindexTable();
+            calculateGrandTotal();
+        }
+    }
+
+    function reindexTable() {
+        const tbody = document.getElementById('items-tbody');
+        Array.from(tbody.children).forEach((tr, index) => {
+            tr.id = `row-${index}`;
+            tr.querySelector('.row-sl-num').textContent = index + 1;
+            
+            const btn = tr.querySelector('.btn-dropdown');
+            if (btn) btn.setAttribute('onclick', `openCategoryModal(${index})`);
+            
+            const textInput = tr.querySelector('textarea[id^="part-text-input-"]');
+            if (textInput) textInput.id = `part-text-input-${index}`;
+            
+            const qtyInput = tr.querySelector('input[id^="qty-"]');
+            if (qtyInput) {
+                qtyInput.id = `qty-${index}`;
+                qtyInput.setAttribute('oninput', `calculateRow(${index})`);
+            }
+            
+            const rateInput = tr.querySelector('input[id^="rate-"]');
+            if (rateInput) {
+                rateInput.id = `rate-${index}`;
+                rateInput.setAttribute('oninput', `calculateRow(${index})`);
+            }
+            
+            const amountCell = tr.querySelector('td[id^="amount-"]');
+            if (amountCell) amountCell.id = `amount-${index}`;
+            
+            const removeBtn = tr.querySelector('.btn-remove');
+            if (removeBtn) removeBtn.setAttribute('onclick', `removeRow(${index})`);
+        });
+    }
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function openCategoryModal(idx) {
+        targetRowIndex = idx;
+        openModal('modal-category');
+    }
+
+    function chooseCategory(cat) {
+        closeModal('modal-category');
+        showSubcategories(cat, subcategoriesMap[cat]);
+    }
+
+    function showSubcategories(cat, items) {
+        document.getElementById('subcat-modal-title').textContent = `Select ${cat} Variety`;
+        const container = document.getElementById('subcat-options-grid');
+        container.innerHTML = '';
+        items.forEach(item => {
+            const btn = document.createElement('button');
+            btn.className = 'option-item-btn';
+            btn.textContent = item;
+            btn.onclick = () => chooseSubcategory(cat, item);
+            container.appendChild(btn);
+        });
+        openModal('modal-subcategory');
+    }
+
+    function chooseSubcategory(cat, item) {
+        closeModal('modal-subcategory');
+        if (cat === 'Sattu' || cat === 'Besan') {
+            selectedSubcategoryItem = item;
+            document.getElementById('pkg-modal-title').textContent = `Packaging for ${item}`;
+            openModal('modal-packaging');
+        } else {
+            setParticularsValue(item);
+        }
+    }
+
+    function choosePackaging(pkgType) {
+        closeModal('modal-packaging');
+        // Added straight in same line with brackets
+        setParticularsValue(`${selectedSubcategoryItem} (${pkgType})`);
+    }
+
+    function setParticularsValue(val) {
+        if (targetRowIndex !== null) {
+            const partInput = document.getElementById(`part-text-input-${targetRowIndex}`);
+            if (partInput) {
+                partInput.value = val;
+            }
+        }
+    }
+
+    function calculateRow(idx) {
+        const qty = parseFloat(document.getElementById(`qty-${idx}`).value) || 0;
+        const rate = parseFloat(document.getElementById(`rate-${idx}`).value) || 0;
+        const amt = qty * rate;
+        document.getElementById(`amount-${idx}`).textContent = amt.toFixed(2);
+        calculateGrandTotal();
+    }
+
+    function calculateGrandTotal() {
+        const tbody = document.getElementById('items-tbody');
+        let total = 0;
+        for (let i = 0; i < tbody.children.length; i++) {
+            const amtCell = document.getElementById(`amount-${i}`);
+            if (amtCell) {
+                total += parseFloat(amtCell.textContent) || 0;
+            }
+        }
+        document.getElementById('screen-grand-total').textContent = total.toFixed(2);
+    }
+
+    // Capture and populate hidden print container before printing
+    function captureSnapshotForPrint() {
+        const slStr = document.getElementById('inp-slno').value;
+        const dateStr = document.getElementById('inp-date').value;
+        
+        // English details for main receipt
+        const nameStr = document.getElementById('inp-name').value || '';
+        const addrStr = document.getElementById('inp-address').value || '';
+        
+        // Hindi details for top slip. Uses English text if Hindi box is left empty.
+        const nameHiStr = document.getElementById('inp-name-hi').value || nameStr;
+        const addrHiStr = document.getElementById('inp-address-hi').value || addrStr;
+
+        const driverStr = document.getElementById('inp-driver').value || '';
+        const vehicleStr = document.getElementById('inp-vehicle').value || '';
+        const grandTotalStr = document.getElementById('screen-grand-total').textContent;
+
+        // Populate Main and Duplicate receipt info
+        ['p1', 'p2'].forEach(p => {
+            document.getElementById(`${p}-slno`).textContent = slStr;
+            document.getElementById(`${p}-date`).textContent = dateStr;
+            document.getElementById(`${p}-name`).textContent = nameStr;
+            document.getElementById(`${p}-address`).textContent = addrStr;
+            document.getElementById(`${p}-driver`).textContent = driverStr;
+            document.getElementById(`${p}-vehicle`).textContent = vehicleStr;
+            document.getElementById(`${p}-total`).textContent = grandTotalStr;
+            document.getElementById(`${p}-status`).textContent = currentStatus;
+        });
+
+        // Populate Top Hindi Slip
+        document.getElementById('slip-name-hi').textContent = nameHiStr;
+        document.getElementById('slip-address-hi').textContent = addrHiStr;
+
+        const tbody = document.getElementById('items-tbody');
+        let printRowsHTML = '';
+        let slipItemsHTML = '';
+
+        for (let i = 0; i < tbody.children.length; i++) {
+            const textInput = document.getElementById(`part-text-input-${i}`);
+            const itemText = textInput ? textInput.value : '';
+            
+            const qty = document.getElementById(`qty-${i}`) ? document.getElementById(`qty-${i}`).value : '';
+            const rate = document.getElementById(`rate-${i}`) ? document.getElementById(`rate-${i}`).value : '';
+            const amt = document.getElementById(`amount-${i}`) ? document.getElementById(`amount-${i}`).textContent : '0.00';
+
+            // Insert Table Rows for Original & Duplicate
+            printRowsHTML += `
+                <tr>
+                    <td style="text-align: center;">${i + 1}</td>
+                    <td style="white-space: pre-line; font-weight: bold;">${itemText || '-'}</td>
+                    <td style="text-align: right;">${qty || '-'}</td>
+                    <td style="text-align: right;">${rate || '-'}</td>
+                    <td style="text-align: right; font-weight: bold;">${amt}</td>
+                </tr>
+            `;
+
+            // Setup Badge Format for Top Slip (NAME - QTY)
+            if(itemText.trim() !== '' || qty.trim() !== '') {
+                // remove newlines and format for top slip
+                let cleanName = itemText.replace(/\n/g, ' ').trim().toUpperCase();
+                let cleanQty = qty || '0';
+                slipItemsHTML += `<div class="slip-badge">${cleanName || 'ITEM'} - ${cleanQty}</div>`;
+            }
+        }
+
+        document.getElementById('p1-tbody').innerHTML = printRowsHTML;
+        document.getElementById('p2-tbody').innerHTML = printRowsHTML;
+        document.getElementById('slip-items-list').innerHTML = slipItemsHTML;
+    }
+
+    function openPrintConfirm() { openModal('modal-print-confirm'); }
+
+    // Execute Print Logic safely
+    function executeFinalPrint() {
+        closeModal('modal-print-confirm');
+        captureSnapshotForPrint();
+        saveReceiptToApp();
+        
+        setTimeout(() => {
+            window.print();
+        }, 300);
+    }
+
+    // Trigger Screen Reset ONLY after print dialog closes
+    window.addEventListener('afterprint', () => {
+        currentSlNo = loadArcpts().length + 1;
+        document.getElementById('inp-slno').value = formatSl(currentSlNo);
+        resetBillForm();
+    });
+
+    function forceNewBill() {
+        if(confirm('क्या आप मौजूदा बिल क्लियर करके नया बिल बनाना चाहते हैं?')) {
+            currentSlNo++;
+            document.getElementById('inp-slno').value = formatSl(currentSlNo);
+            resetBillForm();
+        }
+    }
+
+    function resetBillForm() {
+        document.getElementById('inp-name').value = '';
+        document.getElementById('inp-address').value = '';
+        document.getElementById('inp-name-hi').value = '';
+        document.getElementById('inp-address-hi').value = '';
+        document.getElementById('inp-driver').value = '';
+        document.getElementById('inp-vehicle').value = '';
+        document.getElementById('screen-grand-total').textContent = '0.00';
+        
+        const tbody = document.getElementById('items-tbody');
+        tbody.innerHTML = '';
+        addNewRow();
+
+        currentStatus = 'DUE';
+        const pill = document.getElementById('status-pill-display');
+        const stamp = document.getElementById('screen-status-stamp');
+        pill.textContent = 'STATUS: DUE';
+        pill.className = 'status-pill due';
+        stamp.textContent = 'DUE';
+    }
+</script>
+</body>
+</html>
