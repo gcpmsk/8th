@@ -22,16 +22,17 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 })();
 
 /* ---------- navigation ---------- */
-const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen'};
+const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen'};
 let go=function(name){
   $$('.screen').forEach(s=>s.classList.remove('active'));
   $('#'+ (SCREENS[name]||SCREENS.home)).classList.add('active');
   window.scrollTo(0,0);
   if(name==='notebook') renderAll();
+  if(name==='printhome') renderPrintHome();
 }
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');
-  if(g){ const t=g.dataset.go; if(t==='printhome'){ go('notebook'); setTimeout(openPrintChoice,350); } else go(t); }
+  if(g){ go(g.dataset.go); }
 });
 $('#nb-back').addEventListener('click',()=>{
   if(CUR_DATE!==DATE){ exitEditDate(); renderAll(); toast('आज की तारीख़ पर वापस ✔'); }
@@ -41,8 +42,22 @@ $('#nb-back').addEventListener('click',()=>{
 /* ---------- login ---------- */
 $('#login-form').addEventListener('submit',e=>{
   e.preventDefault();
-  if($('#lg-phone').value==='9631816666' && $('#lg-pass').value==='Satyam'){ go('home'); }
+  if($('#lg-phone').value==='9631816666' && $('#lg-pass').value==='Satyam'){
+    try{ sessionStorage.setItem('sg_login','1'); }catch(err){}
+    go(hashScreen()||'home');
+  }
   else { $('#login-err').style.display='block'; setTimeout(()=>$('#login-err').style.display='none',2500); }
+});
+/* Receipt/Slip page से वापस आने पर सीधे उसी screen पर — दोबारा login नहीं */
+function hashScreen(){
+  const h=(location.hash||'').replace('#','');
+  if(h==='print') return 'printhome';
+  if(h && SCREENS[h]) return h;
+  return '';
+}
+window.addEventListener('DOMContentLoaded',()=>{
+  let logged=false; try{ logged = sessionStorage.getItem('sg_login')==='1'; }catch(e){}
+  if(logged){ const t=hashScreen(); go(t||'home'); }
 });
 
 /* ---------- state / storage ---------- */
@@ -313,7 +328,7 @@ function openNagad(editIdx=null){
       <div class="f-row"><label>नाम</label><input type="text" id="ng-name" value="${e.name||''}"></div>
       <div class="f-row"><label>पता</label><input type="text" id="ng-addr" value="${e.address||''}"></div>
       <div class="f-row"><label>Amount</label><input type="number" id="ng-amt" inputmode="decimal" value="${e.amount??''}"></div>
-      ${segRow('कहाँ से दिया',[{v:'cash',t:'💵 Mill'},{v:'online',t:'🏦 A/C'},{v:'home',t:'🏠 Home'},{v:'counter',t:'🛒 Con-ter'}], e.mode||'cash')}
+      ${segRow('कहाँ से दिया',[{v:'cash',t:'💵 Mill'},{v:'online',t:'🏦 A/C'},{v:'home',t:'🏠 Home'}], e.mode||'cash')}
       <div class="f-row"><label>Item ले गया</label><select id="ng-item"><option value="">— नहीं —</option>${['आटा बोरा','सत्तू','बेसन','आटा','चोकर'].map(x=>`<option ${e.item===x?'selected':''}>${x}</option>`).join('')}</select></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ng-save">✓ Save</button></div>`,
     onOpen(bk){
@@ -925,13 +940,21 @@ function notebookHTML(db,date,withTotal){
 ========================================================= */
 const PRINT_FONTS='https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Kalam:wght@400;700&display=swap';
 function appCSS(){ return Array.from(document.querySelectorAll('style')).map(s=>s.textContent).join('\n'); }
-function printOverrideCSS(landscape,pageW){
+function printOverrideCSS(landscape,overlay){
+  const hide = overlay
+    ? `@media print{
+         body > *:not(#sg-print-overlay){display:none!important;}
+         #sg-print-overlay{position:static!important;padding:0!important;overflow:visible!important;background:#fff!important;}
+         #sg-print-overlay .pbar{display:none!important;}
+       }`
+    : `.bg-3d,.screen,#toast,#popups-root,#ph-viewer{display:none!important;}`;
   return `
-  @page{size:A4 ${landscape?'landscape':'portrait'};margin:6mm;}
+  @page{size:A4 ${landscape?'landscape':'portrait'};margin:5mm;}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   html,body{margin:0!important;padding:0!important;background:#fff!important;min-height:0!important;width:auto!important;overflow:visible!important;}
-  .bg-3d,.screen,#toast,#popups-root{display:none!important;}
-  #pw{width:${pageW}px;transform-origin:top left;display:block;}
+  ${hide}
+  #pstage{overflow:hidden;page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;}
+  #pw{transform-origin:top left;display:block;}
   #pw .notebook{box-shadow:none!important;animation:none!important;min-height:auto!important;
     flex-direction:row!important;border:1.5px solid #444;border-radius:0;background:#fff;display:flex;}
   #pw .nb-page{width:50%!important;padding:8px 10px 12px!important;background:#fff!important;box-shadow:none!important;border-radius:0!important;}
@@ -947,22 +970,29 @@ function printOverrideCSS(landscape,pageW){
   #pw .kharch-divider{font-size:12.5px!important;}
   #pw .nb-col{min-height:40px!important;padding-bottom:6px!important;}
   #pw .io-card{margin-top:22px!important;}
-  #pw .att-table{font-size:11px;}
-  #pw .att-table th,#pw .att-table td{border:1px solid #999;padding:3px 3px;}
-  #pw .att-table thead th{position:static!important;}
-  #pw .att-table .st-name{position:static!important;box-shadow:none!important;}
-  #pw .att-wrap{box-shadow:none!important;border:none!important;max-height:none!important;overflow:visible!important;}
+  /* ---- ATTENDANCE : पूरा महीना (1 → last date) + P column एक ही page पर ---- */
+  #pw .att-wrap{box-shadow:none!important;border:none!important;max-height:none!important;overflow:visible!important;width:auto!important;}
+  #pw .att-table{font-size:9.5px;border-collapse:collapse!important;border-spacing:0!important;width:auto!important;min-width:0!important;}
+  #pw .att-table th,#pw .att-table td{border:1px solid #999!important;padding:1.5px 2px!important;white-space:nowrap;}
+  #pw .att-table thead th{position:static!important;background:#e9edf3!important;color:#111!important;font-size:9px!important;}
+  #pw .att-table thead th .dow{font-size:7px!important;}
+  #pw .att-table .st-name{position:static!important;box-shadow:none!important;min-width:0!important;
+    background:#fff!important;color:#111!important;font-size:9.5px!important;padding:1.5px 5px!important;}
+  #pw .att-table .att-mark{font-size:9px!important;}
+  #pw .att-title{font-size:15px!important;padding:3px!important;}
   `;
 }
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document);
-function printDocHTML(innerHTML,landscape,pageW){
+const IS_IOS   = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document);
+const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints||0) > 0;
+
+function printDocHTML(innerHTML,landscape){
   return `<!DOCTYPE html><html lang="hi"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>SATYAM GOLD</title>
+    <title>SATYAM GOLD — Print</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="${PRINT_FONTS}">
     <style>${appCSS()}</style>
-    <style>${printOverrideCSS(landscape,pageW)}
+    <style>${printOverrideCSS(landscape,false)}
       .pbar{position:fixed;left:0;right:0;top:0;z-index:99;display:flex;gap:10px;justify-content:center;padding:10px;background:#243447;}
       .pbar button{padding:10px 22px;border:none;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;font-family:'Poppins',sans-serif;}
       .pbar .go{background:#2ecc71;color:#fff;} .pbar .cl{background:#e9edf3;color:#40506b;}
@@ -970,51 +1000,94 @@ function printDocHTML(innerHTML,landscape,pageW){
       @media print{ .pbar{display:none!important;} body{padding-top:0!important;} }
     </style></head><body>
     <div class="pbar"><button class="go" onclick="window.print()">🖨️ Print</button><button class="cl" onclick="window.close()">✖ बंद करें</button></div>
-    <div id="pw">${innerHTML}</div></body></html>`;
+    <div id="pstage"><div id="pw">${innerHTML}</div></div></body></html>`;
 }
-function fitPW(doc,pageW,pageH,fit){
+
+/* mm-आधारित नाप — असली A4 page में जितना आता है उतना ही scale, इसलिए हमेशा 1 ही page */
+function sgFitDoc(doc,landscape,stretch){
   try{
-    const pw=doc.getElementById('pw'); if(!fit||!pw) return;
-    const h=pw.scrollHeight||1, wd=pw.scrollWidth||pageW;
-    const sc=Math.min(1, pageH/h, pageW/wd);
-    if(sc<1){ pw.style.transform=`scale(${sc})`; pw.style.height=Math.ceil(h*sc)+'px'; }
+    const pw=doc.getElementById('pw'), st=doc.getElementById('pstage');
+    if(!pw||!st) return;
+    const probe=doc.createElement('div');
+    probe.style.cssText='position:absolute;left:-9999px;top:0;width:100mm;height:10mm;';
+    doc.body.appendChild(probe);
+    let pxmm=probe.offsetWidth/100;
+    probe.parentNode.removeChild(probe);
+    if(!pxmm||!isFinite(pxmm)||pxmm<=0) pxmm=96/25.4;
+    const M=5;                                        // @page margin (mm)
+    const availW=((landscape?297:210)-2*M)*pxmm;
+    const availH=((landscape?210:297)-2*M)*pxmm;
+    pw.style.transform='none';
+    pw.style.width = stretch ? (availW+'px') : 'max-content';
+    const w=Math.max(pw.scrollWidth, Math.ceil(pw.getBoundingClientRect().width), 1);
+    const h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
+    const sc=Math.min(1, availW/w, availH/h);
+    pw.style.transformOrigin='top left';
+    pw.style.transform='scale('+sc+')';
+    st.style.width=Math.ceil(availW)+'px';
+    st.style.height=Math.ceil(Math.min(h*sc,availH))+'px';
   }catch(err){}
 }
-/* भरोसेमंद Print — अपना अलग पूरा document बनता है (blank page वाली दिक़्क़त ख़त्म)
-   iOS/iPad → नयी tab में (वहाँ iframe print काम नहीं करता), बाक़ी सब → hidden iframe */
-function printDocument(innerHTML,{landscape=true,fit=true}={}){
-  const pageW = landscape?1077:745;          // A4 printable @96dpi (6mm margin)
-  const pageH = landscape?748:1055;
-  const html  = printDocHTML(innerHTML,landscape,pageW);
+
+/* Popup block होने पर — इसी page पर overlay बना कर print (Android fallback) */
+function printViaOverlay(innerHTML,landscape,stretch){
+  const oldO=document.getElementById('sg-print-overlay'); if(oldO) oldO.remove();
+  const oldS=document.getElementById('sg-print-ovcss');   if(oldS) oldS.remove();
+  const st=document.createElement('style'); st.id='sg-print-ovcss';
+  st.textContent = printOverrideCSS(landscape,true) + `
+    #sg-print-overlay{position:fixed;inset:0;background:#fff;z-index:99999;overflow:auto;padding:56px 8px 20px;}
+    #sg-print-overlay .pbar{position:fixed;left:0;right:0;top:0;z-index:5;display:flex;gap:10px;justify-content:center;padding:10px;background:#243447;}
+    #sg-print-overlay .pbar button{padding:10px 22px;border:none;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;}
+    #sg-print-overlay .pbar .go{background:#2ecc71;color:#fff;} #sg-print-overlay .pbar .cl{background:#e9edf3;color:#40506b;}`;
+  document.head.appendChild(st);
+  const ov=document.createElement('div'); ov.id='sg-print-overlay';
+  ov.innerHTML=`<div class="pbar"><button class="go">🖨️ Print</button><button class="cl">✖ बंद करें</button></div>
+    <div id="pstage"><div id="pw">${innerHTML}</div></div>`;
+  document.body.appendChild(ov);
+  const close=()=>{ ov.remove(); st.remove(); };
+  ov.querySelector('.cl').addEventListener('click',close);
+  ov.querySelector('.go').addEventListener('click',()=>{ sgFitDoc(document,landscape,stretch); setTimeout(()=>window.print(),60); });
+  setTimeout(()=>{ sgFitDoc(document,landscape,stretch); setTimeout(()=>{ try{ window.print(); }catch(e){} },120); },320);
+}
+
+/* भरोसेमंद Print —
+   Tablet/Mobile (Android + iPad) पर iframe.print() पूरे app का screen छाप देता था
+   (screenshot जैसा, 2 page) — इसलिए वहाँ हमेशा नयी tab में अपना साफ़ document बनता है।
+   Desktop पर hidden iframe. दोनों जगह content mm-नाप से scale होकर 1 page में fit होता है। */
+function printDocument(innerHTML,opt){
+  opt = opt || {};
+  const landscape = opt.landscape !== false;
+  const stretch   = opt.stretch   !== false;
+  const html      = printDocHTML(innerHTML,landscape);
   toast('🖨️ Print तैयार हो रहा है…');
 
-  if(IS_IOS){
-    const w=window.open('','_blank');
-    if(w){
+  if(IS_TOUCH || IS_IOS){
+    let w=null; try{ w=window.open('','_blank'); }catch(e){}
+    if(w && w.document){
       w.document.open(); w.document.write(html); w.document.close();
-      const run=()=>{ fitPW(w.document,pageW,pageH,fit); try{ w.focus(); w.print(); }catch(e){} };
+      const run=()=>{ sgFitDoc(w.document,landscape,stretch); try{ w.focus(); w.print(); }catch(e){} };
       const f=(w.document.fonts&&w.document.fonts.ready)?w.document.fonts.ready:Promise.resolve();
-      f.catch(()=>{}).then(()=>setTimeout(run,500));
+      f.catch(()=>{}).then(()=>setTimeout(run,600));
       return;
     }
-    toast('Popup block है — Setting में allow करें');
+    return printViaOverlay(innerHTML,landscape,stretch);
   }
 
   const old=document.getElementById('sg-print-frame'); if(old) old.remove();
   const fr=document.createElement('iframe');
   fr.id='sg-print-frame'; fr.setAttribute('aria-hidden','true');
-  fr.style.cssText=`position:fixed;left:-20000px;top:0;width:${pageW+40}px;height:${pageH+300}px;border:0;background:#fff;`;
+  fr.style.cssText=`position:fixed;left:-20000px;top:0;width:1200px;height:1400px;border:0;background:#fff;`;
   document.body.appendChild(fr);
   const doc=fr.contentDocument||fr.contentWindow.document;
   doc.open(); doc.write(html); doc.close();
   const fire=()=>{
-    fitPW(doc,pageW,pageH,fit);
+    sgFitDoc(doc,landscape,stretch);
     let done=false;
     const cleanup=()=>{ if(done)return; done=true; setTimeout(()=>{ const f=document.getElementById('sg-print-frame'); if(f) f.remove(); },1000); };
     try{ fr.contentWindow.addEventListener('afterprint',cleanup); }catch(err){}
     try{ fr.contentWindow.focus(); fr.contentWindow.print(); }
-    catch(err){ toast('Print नहीं खुला — दोबारा कोशिश करें'); cleanup(); return; }
-    setTimeout(cleanup,120000);   // print dialog खुला रहे तब भी frame ज़िंदा रहे
+    catch(err){ cleanup(); return printViaOverlay(innerHTML,landscape,stretch); }
+    setTimeout(cleanup,120000);
   };
   const start=()=>{
     const f=(doc.fonts&&doc.fonts.ready)?doc.fonts.ready:Promise.resolve();
@@ -1037,7 +1110,7 @@ function printNotebook(db,date,withTotal){
     q('#col-kharch')?.insertAdjacentHTML('beforeend', `<div class="total-block"><div class="t-line"></div>
       <div class="t-row green"><span class="t-num">${fmt(T.kharchT)}</span><span class="t-lbl final-name">→ नगद खर्च Total</span></div></div>`);
   }
-  printDocument(host.innerHTML,{landscape:true,fit:true});
+  printDocument(host.innerHTML,{landscape:true,stretch:true});
 }
 
 /* triple-click date → direct print (with total) */
@@ -1115,7 +1188,7 @@ function printReceipt(rc){
     </tbody></table>
     <div style="text-align:center;font-size:11px;color:#888;margin-top:10px;">धन्यवाद! — ${rc.pay==='online'?'A/C Paid':'Cash Paid'}</div>
   </div>`;
-  printDocument(html,{landscape:false,fit:false});
+  printDocument(html,{landscape:false,stretch:false});
 }
 
 /* =========================================================
@@ -1331,12 +1404,160 @@ function askAttAdmin(nm,onOk){
       c=0; },500); });
 })();
 function printAttendance(mk){
-  printDocument(`<div class="att-title">SATYAM GOLD \u2014 Attendance (${mk})</div>${attTableHTML(mk,false)}`,{landscape:true,fit:true});
+  printDocument(`<div class="att-title">SATYAM GOLD \u2014 Attendance (${mk})</div>${attTableHTML(mk,false)}`,{landscape:true,stretch:false});
 }
 
 /* hook attendance render into navigation */
 const _goOrig=go;
 go=function(name){ _goOrig(name); if(name==='attendance') renderAttendance(); };
+
+/* =========================================================
+   PRINT HOME — 🧾 Receipt Details  |  🌾 Wheat Details
+   (सिर्फ़ आज की entries; 👁 पर पूरा receipt/slip preview)
+========================================================= */
+const ARC_KEY = d => 'sg_arcpt_' + d;      // Atta receipts (atta-receipt.html से)
+const WRC_KEY = d => 'sg_wrcpt_' + d;      // Wheat slips  (wheat-slip.html से)
+function loadArr(k){ try{ return JSON.parse(localStorage.getItem(k))||[]; }catch(e){ return []; } }
+function phEmpty(ico,txt){ return `<div class="ph-empty"><span class="big">${ico}</span>${txt}</div>`; }
+function n2(v){ const n=parseFloat(v); return isNaN(n)? '0.00' : n.toFixed(2); }
+
+function renderPrintHome(){
+  const d=DATE;
+  $('#ph-date').textContent=d;
+  const rc=loadArr(ARC_KEY(d)), wh=loadArr(WRC_KEY(d));
+  $('#ph-rc-cnt').textContent=rc.length;
+  $('#ph-wh-cnt').textContent=wh.length;
+
+  /* ---- Receipt Details : Sr. No | नाम (पता) | Particulars + Qty | 👁 ---- */
+  $('#ph-rcpt-list').innerHTML = rc.length ? rc.map((r,i)=>{
+    const nm=r.nameHi||r.name||'—', ad=r.addressHi||r.address||'';
+    const chips=(r.items||[]).map(it=>`<span class="ph-chip">${esc(it.name||'Item')} — ${esc(String(it.qty||'0'))}</span>`).join('');
+    return `<div class="ph-row">
+      <span class="ph-sr">${esc(String(r.no||(i+1)))}</span>
+      <div class="ph-info">
+        <div class="ph-name">${esc(nm)}${ad?` <small>(${esc(ad)})</small>`:''}</div>
+        <div class="ph-part">${chips||'<i style="color:#b6bcc9">कोई item नहीं</i>'}</div>
+      </div>
+      <button class="ph-eye" data-view="rc" data-i="${i}" title="पूरा Receipt देखें">👁</button>
+    </div>`;
+  }).join('') : phEmpty('🧾','आज कोई Atta Receipt नहीं बना<br><small>ऊपर 🖨️ Print → Atta Print</small>');
+
+  /* ---- Wheat Details : Sr. No | नाम (पता) | Total बोरा + Rate | 👁 ---- */
+  $('#ph-wheat-list').innerHTML = wh.length ? wh.map((r,i)=>{
+    const nm=r.nameHi||r.name||'—', ad=r.addressHi||r.address||'';
+    return `<div class="ph-row">
+      <span class="ph-sr" style="background:linear-gradient(135deg,#f39c12,#d35400);">${esc(String(r.serial||r.no||(i+1)))}</span>
+      <div class="ph-info">
+        <div class="ph-name">${esc(nm)}${ad?` <small>(${esc(ad)})</small>`:''}</div>
+        <div class="ph-part">
+          <span class="ph-chip gold">Total बोरा — ${esc(String(r.bags||'0'))}</span>
+          <span class="ph-chip gold">RATE — ${esc(n2(r.rate))}</span>
+          <span class="ph-chip">${r.mode==='fill'?'📦 FILL':'⚖️ RST'}</span>
+        </div>
+      </div>
+      <button class="ph-eye" data-view="wh" data-i="${i}" title="पूरा Slip देखें">👁</button>
+    </div>`;
+  }).join('') : phEmpty('🌾','आज कोई Wheat Slip नहीं बना<br><small>ऊपर 🖨️ Print → Wheat Print</small>');
+}
+
+/* ---------- preview (PDF जैसा) ---------- */
+function phHead(){
+  return `<h1>SATYAM FOOD PRODUCT</h1>
+    <div class="pv-sub">Vidyardhar, Khagaria<br>
+    <b>GSTIN:</b> 10DWFPD7233GIZI &nbsp;|&nbsp; <b>FSSAI No:</b> 10421168000028 &nbsp;|&nbsp; <b>Mobile:</b> 9631816666</div>`;
+}
+function attaPreviewHTML(r){
+  const rows=(r.items||[]).map((it,i)=>`<tr><td style="text-align:center;">${i+1}</td>
+    <td><b>${esc(it.name||'-')}</b></td><td class="pv-right">${esc(String(it.qty||'-'))}</td>
+    <td class="pv-right">${esc(String(it.rate||'-'))}</td><td class="pv-right"><b>${esc(it.amount||'0.00')}</b></td></tr>`).join('');
+  return `<div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+      <span class="pv-tag">${esc(r.status||'DUE')}</span><span class="pv-tag">ORIGINAL COPY</span></div>
+    ${phHead()}
+    <table class="pv-info"><tr><td style="width:14%"><b>SI No:</b></td><td style="width:36%">${esc(String(r.no||''))}</td>
+      <td style="width:14%"><b>Date:</b></td><td>${esc(r.dateStr||r.date||'')}</td></tr>
+      <tr><td><b>Name:</b></td><td>${esc(r.name||r.nameHi||'-')}</td><td><b>Address:</b></td><td>${esc(r.address||r.addressHi||'-')}</td></tr>
+      <tr><td><b>Driver:</b></td><td>${esc(r.driver||'-')}</td><td><b>Vehicle No:</b></td><td>${esc(r.vehicle||'-')}</td></tr></table>
+    <table><thead><tr><th style="width:6%">#</th><th style="width:50%">Particulars</th>
+      <th style="width:14%">Qty</th><th style="width:14%">Rate</th><th style="width:16%">Amount</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" style="text-align:center;">—</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="4" class="pv-right"><b>Total Amount (₹):</b></td><td class="pv-right"><b>${esc(r.total||'0.00')}</b></td></tr></tfoot></table>
+    <div style="text-align:center;font-size:12px;font-weight:700;margin-top:14px;">Bank Details: A/c No: 60440573620, IFSC: MAHB0002230</div>
+    <div class="pv-sign"><div>Receiver</div><div>Authorised Signatory</div></div>`;
+}
+function wheatPreviewHTML(r){
+  const isFill = r.mode==='fill';
+  const wtCols = isFill
+    ? `<th style="width:36%">Weight Breakdown (Kg)</th><th style="width:14%">Total Wt (Kg)</th>`
+    : `<th style="width:14%">Gross (Kg)</th><th style="width:14%">Tare (Kg)</th><th style="width:14%">Net (Kg)</th>`;
+  const wtVals = isFill
+    ? `<td style="font-size:11px;">${esc((r.weights||[]).map(w=>w+'kg').join(', ')||'-')}</td>
+       <td style="text-align:center;"><b>${n2(r.totalWt)}</b></td>`
+    : `<td style="text-align:center;"><b>${esc(String(r.gross||'-'))}</b></td>
+       <td style="text-align:center;">${esc(String(r.tare||'-'))}</td>
+       <td style="text-align:center;"><b>${esc(String(r.net||n2(r.totalWt)))}</b></td>`;
+  const ded=[
+    ['Gross Amount (Wt × Rate):', n2(r.grossAmt), true],
+    [`Less: Weight Cut (0.5kg/Qtl) [ ${n2(r.wtCutKg)} Kg ]:`, '- '+n2(r.wtCutRs), (r.wtCutRs||0)>0],
+    ['Less: Unloading Charge (₹4/Bag):', '- '+n2(r.unloadRs), (r.unloadRs||0)>0],
+    ['Less: D/P/W Bag Damage Cut:', '- '+n2(r.bagCut), (r.bagCut||0)>0]
+  ].filter(x=>x[2]).map(x=>`<tr><td>${esc(x[0])}</td><td class="pv-right"><b>${esc(x[1])}</b></td></tr>`).join('');
+  return `<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><span class="pv-tag">ORIGINAL COPY</span></div>
+    ${phHead()}
+    <div class="pv-ttl">WHEAT PROCUREMENT SLIP (${isFill?'FILL':'RST'})</div>
+    <table class="pv-info"><tr><td style="width:16%"><b>SI No / RST:</b></td><td style="width:34%">${esc(String(r.no||r.serial||''))} / ${esc(r.rst||(isFill?'FILL':'-'))}</td>
+      <td style="width:14%"><b>Date:</b></td><td>${esc(r.dateStr||r.date||'')}</td></tr>
+      <tr><td><b>Farmer Name:</b></td><td>${esc(r.nameHi||r.name||'-')}</td><td><b>Address:</b></td><td>${esc(r.addressHi||r.address||'-')}</td></tr>
+      <tr><td><b>Vehicle No:</b></td><td>${esc(r.vehicle||'-')}</td><td><b>Driver Name:</b></td><td>${esc(r.driver||'-')}</td></tr></table>
+    <table><thead><tr><th style="width:16%">Item</th><th style="width:20%">Bags Detail</th>${wtCols}<th style="width:14%">Rate (₹/Kg)</th></tr></thead>
+      <tbody><tr><td style="text-align:center;"><b>Wheat (गेहूँ)</b></td>
+        <td style="text-align:center;"><div style="border:1.5px solid #000;border-radius:50px;padding:2px 12px;display:inline-block;font-size:11px;font-weight:800;">
+          <div style="font-size:8.5px;letter-spacing:2px;border-bottom:1px solid #000;">D P W</div>
+          ${esc(String(r.bags||'0'))} = ${esc(String(r.d||'0'))}/${esc(String(r.p||'0'))}/${esc(String(r.w||'0'))}</div></td>
+        ${wtVals}<td style="text-align:center;">${n2(r.rate)}</td></tr></tbody></table>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+      <table style="width:62%;"><tbody>${ded}
+        <tr><td><b>FINAL PAYABLE AMOUNT (₹):</b></td><td class="pv-right" style="background:#f2f2f2;"><b>${n2(r.finalPay)}</b></td></tr>
+      </tbody></table></div>
+    <div class="pv-sign"><div>Farmer / Driver</div><div>Manager Auth.</div><div>Authorised Signatory</div></div>`;
+}
+function openPhViewer(title,html){
+  $('#pv-title').textContent=title;
+  $('#pv-paper').innerHTML=html;
+  $('#ph-viewer').classList.add('on');
+  window.scrollTo(0,0);
+}
+function closePhViewer(){ $('#ph-viewer').classList.remove('on'); }
+$('#pv-close').addEventListener('click',closePhViewer);
+$('#ph-viewer').addEventListener('click',e=>{ if(e.target.id==='ph-viewer') closePhViewer(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePhViewer(); });
+
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.ph-eye'); if(!b) return;
+  const i=+b.dataset.i;
+  if(b.dataset.view==='rc'){
+    const r=loadArr(ARC_KEY(DATE))[i]; if(!r) return;
+    openPhViewer('🧾 Atta Receipt — No. '+(r.no||''), attaPreviewHTML(r));
+  }else{
+    const r=loadArr(WRC_KEY(DATE))[i]; if(!r) return;
+    openPhViewer('🌾 Wheat Slip — Serial '+(r.serial||r.no||''), wheatPreviewHTML(r));
+  }
+});
+
+/* 🖨️ Print → Atta Print / Wheat Print */
+$('#ph-print-btn').addEventListener('click',()=>{
+  popup({
+    title:'🖨️ Print — कौन सा?',
+    body:`<div class="print-choice">
+        <button id="pc-atta"><span class="pc-ico">🧾</span>Atta Print<br><small style="color:#8a94a6">आटा / सत्तू / बेसन Receipt</small></button>
+        <button id="pc-wheat"><span class="pc-ico">🌾</span>Wheat Print<br><small style="color:#8a94a6">गेहूँ Slip — Serial से auto fill</small></button>
+      </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelector('#pc-atta').addEventListener('click',()=>{ location.href='atta-receipt.html'; });
+      bk.querySelector('#pc-wheat').addEventListener('click',()=>{ location.href='wheat-slip.html'; });
+    }
+  });
+});
 
 /* init */
 renderAll();
