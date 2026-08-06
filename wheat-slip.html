@@ -101,6 +101,8 @@
         .serial-box input{width:110px;padding:8px 10px;border:1.6px solid #f59e0b;border-radius:8px;font-weight:800;font-size:16px;text-align:center;}
         .serial-hint{font-size:12px;color:#92400e;font-weight:600;}
 
+        .app-btn.tgl-btn{background:#64748b;color:#fff;}
+        .app-btn.tgl-btn.active{background:#16a34a;color:#fff;}
         /* toggle 1/2kg & Unloading */
         .toggle-btn{background:#e9edf3;color:#40506b;padding:12px 14px;border:2.5px solid #d8e0ea;border-radius:12px;
             font-weight:800;cursor:pointer;text-align:center;transition:.2s;font-size:14px;width:100%;margin-bottom:14px;}
@@ -191,8 +193,7 @@
     <div class="toolbar no-print">
         <h2>🌾 WHEAT SLIP — SATYAM FOOD PRODUCT</h2>
         <div class="toolbar-buttons">
-            <button class="app-btn red" onclick="forceNewBill()">🗑️ New Slip</button>
-            <button class="app-btn green" onclick="executePrint()">🖨️ Print Slip</button>
+            <button type="button" id="toggle-std-deduction" class="app-btn tgl-btn" onclick="toggleDeduction()">❌ 1/2kg &amp; Unloading OFF</button>
         </div>
     </div>
 
@@ -214,6 +215,7 @@
             <label>📔 माल आवत Serial No:</label>
             <input type="number" id="inp-serial" inputmode="numeric" placeholder="1" oninput="fillFromSerial()">
             <button type="button" class="app-btn gold" onclick="fillFromSerial(true)">🪄 Auto Fill</button>
+            <span id="wh-lock-badge" style="display:none;background:#0f172a;color:#fbbf24;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;">🔒 Notebook Locked — सिर्फ़ ₹/Bag भरें</span>
             <span class="serial-hint" id="serial-hint">Notebook (माल आवत खाते) का Serial डालें — नाम, पता, बोरा, वजन, रेट अपने आप भर जाएगा</span>
         </div>
 <!-- INFO TABLE -->
@@ -316,10 +318,6 @@
             </div>
         </div>
 
-        <!-- 1/2kg & UNLOADING TOGGLE (दोनों mode में लगेगा) -->
-        <button type="button" id="toggle-std-deduction" class="toggle-btn no-print" onclick="toggleDeduction()">
-            ❌ 1/2kg &amp; Unloading OFF — (click करें तो 0.5kg/Qtl कटौती + ₹4/बोरा Unloading लगेगा)
-        </button>
 
         <!-- CALCULATION PANEL -->
         <div class="calc-panel">
@@ -693,6 +691,24 @@
             setVal('inp-rate-fill', (m.rate!==null&&m.rate!==undefined)? m.rate : '');
         }
         calculateWeight();
+        lockAutoFields(true);
+    }
+
+    /* ---------- Notebook से आया data LOCK — यहाँ बदला नहीं जा सकता ---------- */
+    const AUTO_LOCK_IDS = ['inp-name','inp-name-hi','inp-address','inp-address-hi','inp-rst',
+        'inp-bags','inp-d-qty','inp-p-qty','inp-w-qty',
+        'inp-gross','inp-tare','inp-rate','inp-rate-fill','inp-single-wt'];
+    function lockAutoFields(on){
+        AUTO_LOCK_IDS.forEach(id=>{
+            const el=document.getElementById(id); if(!el) return;
+            el.readOnly = !!on;
+            el.style.background = on? '#eef2f7' : '';
+            el.style.color      = on? '#334155' : '';
+            el.title = on? '🔒 Notebook से auto — यहाँ बदला नहीं जा सकता' : '';
+        });
+        const bt=document.getElementById('wh-lock-badge');
+        if(bt) bt.style.display = on? 'inline-block':'none';
+        renderWeights();
     }
 
     /* ---------- Auto Translate ---------- */
@@ -726,7 +742,8 @@
         manualWeights.forEach((wt,idx)=>{
             const pill = document.createElement('div');
             pill.className = 'weight-pill';
-            pill.innerHTML = `${wt} kg <span onclick="removeWeight(${idx})">&times;</span>`;
+            const lk = document.getElementById('inp-bags') && document.getElementById('inp-bags').readOnly;
+            pill.innerHTML = lk ? `${wt} kg` : `${wt} kg <span onclick="removeWeight(${idx})">&times;</span>`;
             c.appendChild(pill);
         });
     }
@@ -737,10 +754,10 @@
         const btn = document.getElementById('toggle-std-deduction');
         if(isStdDeductionActive) {
             btn.classList.add('active');
-            btn.innerHTML = '✅ 1/2kg &amp; Unloading ON — (0.5kg/Qtl कटौती + ₹4/बोरा Unloading लग गया)';
+            btn.innerHTML = '✅ 1/2kg &amp; Unloading ON';
         } else {
             btn.classList.remove('active');
-            btn.innerHTML = '❌ 1/2kg &amp; Unloading OFF — (click करें तो 0.5kg/Qtl कटौती + ₹4/बोरा Unloading लगेगा)';
+            btn.innerHTML = '❌ 1/2kg &amp; Unloading OFF';
         }
         calculateWeight();
     }
@@ -916,6 +933,7 @@
         hint.textContent='Notebook (माल आवत खाते) का Serial डालें — नाम, पता, बोरा, वजन, रेट अपने आप भर जाएगा';
         hint.style.color='#92400e';
         if(isStdDeductionActive) toggleDeduction();
+        lockAutoFields(false);
         calculateWeight();
     }
 </script>

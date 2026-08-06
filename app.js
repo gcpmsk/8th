@@ -97,7 +97,6 @@ const LABOUR_CATS = [
   {key:'wheat_weight_unloading', name:'Wheat Weight+Unloading', short:'Wheat Wt+Unlod'},
   {key:'chokar_loding', name:'चोकर लोडिंग',          short:'Chokar Loding'},
   {key:'chokar_fill', name:'चोकर Fill',              short:'Chokar Fill'},
-  {key:'wheat_fill',  name:'Wheat Fill',             short:'Wheat Fill'},
   {key:'wheat_holar', name:'Wheat Holar',            short:'Wheat Holar'},
 ];
 
@@ -378,12 +377,12 @@ function openKharch(editIdx=null){
         <div class="f-row"><label>दिया अमाउंट</label><input type="number" id="kh-p-amt" inputmode="decimal"></div>
       </div>
       <div id="kh-erik" style="display:none;">
-        <div class="pp-note">आज का Receipt No भरें → नाम/पता अपने आप 🪄</div>
+        <div class="pp-note">आटा Receipt No भरें → नाम / पता / Quantity अपने आप 🪄 — फिर Amount भरें</div>
         <div class="f-row"><label>Receipt No</label><input type="number" id="kh-e-rno" inputmode="numeric"></div>
         <div class="f-row"><label>नाम</label><input type="text" id="kh-e-name"></div>
         <div class="f-row"><label>पता</label><input type="text" id="kh-e-addr"></div>
         <div class="f-row"><label>Quantity</label><input type="number" id="kh-e-qty" inputmode="numeric"></div>
-        <div class="f-row"><label>Amount</label><div class="ro" id="kh-e-amt">0</div></div>
+        <div class="f-row"><label>Amount ₹</label><input type="number" id="kh-e-amt" inputmode="decimal" placeholder="रेट/अमाउंट भरें"></div>
       </div>
       <div id="kh-van" style="display:none;">
         <div class="f-row"><label>वेन Option</label><select id="kh-van-type"><option value="gadi">🚐 गाड़ी खर्च</option><option value="petrol">⛽ Petrol</option></select></div>
@@ -408,15 +407,23 @@ function openKharch(editIdx=null){
         bk.querySelector('#kh-van').style.display = v==='van'?'block':'none';
         bk.querySelector('#kh-erik').style.display = v==='erik'?'block':'none';
       });
-      const eRate=getRates().e_rikshaw;
-      const eCalc=()=>{ const q=parseFloat(bk.querySelector('#kh-e-qty').value)||0; bk.querySelector('#kh-e-amt').textContent=fmt(q*eRate); };
-      bk.querySelector('#kh-e-qty').addEventListener('input',eCalc);
       bk.querySelector('#kh-e-rno').addEventListener('input',()=>{
         const rn=parseInt(bk.querySelector('#kh-e-rno').value);
-        const rc=(DB.receipts||[]).find(r=>r.no===rn);
-        if(rc){ bk.querySelector('#kh-e-name').value=rc.name; bk.querySelector('#kh-e-addr').value=rc.address||'';
-          const tq=rc.items.reduce((a,x)=>a+(x.qty||0),0); bk.querySelector('#kh-e-qty').value=tq; eCalc();
-          toast('Receipt '+rn+' → '+rc.name); }
+        if(!rn) return;
+        /* 1) आटा Print receipt (atta-receipt.html) से — नाम / पता / Quantity auto */
+        let rc=(loadArr(ARC_KEY(CUR_DATE))||[]).filter(r=>!r.cancelled).find(r=>parseInt(r.no)===rn);
+        if(rc){
+          bk.querySelector('#kh-e-name').value = rc.nameHi||rc.name||'';
+          bk.querySelector('#kh-e-addr').value = rc.addressHi||rc.address||'';
+          const tq=(rc.items||[]).reduce((a,x)=>a+(parseFloat(x.qty)||0),0);
+          bk.querySelector('#kh-e-qty').value=tq||'';
+          toast('Receipt '+rn+' → '+(rc.nameHi||rc.name)); return;
+        }
+        /* 2) fallback — app के अंदर बनी receipt */
+        const r2=(DB.receipts||[]).find(r=>r.no===rn);
+        if(r2){ bk.querySelector('#kh-e-name').value=r2.name; bk.querySelector('#kh-e-addr').value=r2.address||'';
+          bk.querySelector('#kh-e-qty').value=r2.items.reduce((a,x)=>a+(x.qty||0),0);
+          toast('Receipt '+rn+' → '+r2.name); }
       });
       bk.querySelector('#kh-van-type').addEventListener('change',()=>{
         bk.querySelector('#kh-van-petrol').style.display = bk.querySelector('#kh-van-type').value==='petrol'?'block':'none';
@@ -434,9 +441,10 @@ function openKharch(editIdx=null){
         }else if(v==='erik'){
           const q=parseFloat(bk.querySelector('#kh-e-qty').value)||0;
           const nm=bk.querySelector('#kh-e-name').value.trim();
-          if(!nm||q<=0){ toast('नाम और Quantity भरें'); return; }
+          const amt=parseFloat(bk.querySelector('#kh-e-amt').value)||0;
+          if(!nm||amt<=0){ toast('नाम और Amount भरें'); return; }
           const ad=bk.querySelector('#kh-e-addr').value.trim();
-          rec={type:'erik',name:`E-Rikshaw ${nm}(${ad?ad+'-':''}${q})`,amount:q*eRate};
+          rec={type:'erik',name:`E-Rikshaw ${nm}(${ad?ad+'-':''}${q||0})`,amount:amt};
         }else if(v==='van'){
           const amt=parseFloat(bk.querySelector('#kh-van-amt').value)||0;
           if(amt<=0){ toast('अमाउंट भरें'); return; }
@@ -575,9 +583,7 @@ function openRateSettings(){
     {k:'wheat_weight_unloading', n:'Wheat Weight + Unloading'},
     {k:'chokar_loding', n:'चोकर लोडिंग'},
     {k:'chokar_fill', n:'चोकर Fill'},
-    {k:'wheat_fill', n:'Wheat Fill'},
     {k:'wheat_holar', n:'Wheat Holar'},
-    {k:'e_rikshaw', n:'🛵 E-Rikshaw (per qty)'},
   ];
   popup({
     title:'⚙️ Labour Rate Settings',
@@ -955,7 +961,8 @@ function printOverrideCSS(landscape,overlay){
   ${hide}
   #pstage{overflow:hidden;page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;}
   #pw{transform-origin:top left;display:block;}
-  #pw .notebook{box-shadow:none!important;animation:none!important;min-height:auto!important;
+  #pw{min-height:0;}
+  #pw .notebook{box-shadow:none!important;animation:none!important;min-height:100%!important;
     flex-direction:row!important;border:1.5px solid #444;border-radius:0;background:#fff;display:flex;}
   #pw .nb-page{width:50%!important;padding:8px 10px 12px!important;background:#fff!important;box-shadow:none!important;border-radius:0!important;}
   #pw .nb-page.right{border-left:1.5px solid #444;}
@@ -1004,8 +1011,9 @@ function printDocHTML(innerHTML,landscape){
 }
 
 /* mm-आधारित नाप — असली A4 page में जितना आता है उतना ही scale, इसलिए हमेशा 1 ही page */
-function sgFitDoc(doc,landscape,stretch){
+function sgFitDoc(doc,landscape,stretch,grow){
   try{
+    if(grow===undefined) grow = !!window.SG_GROW;
     const pw=doc.getElementById('pw'), st=doc.getElementById('pstage');
     if(!pw||!st) return;
     const probe=doc.createElement('div');
@@ -1019,9 +1027,21 @@ function sgFitDoc(doc,landscape,stretch){
     const availH=((landscape?210:297)-2*M)*pxmm;
     pw.style.transform='none';
     pw.style.width = stretch ? (availW+'px') : 'max-content';
-    const w=Math.max(pw.scrollWidth, Math.ceil(pw.getBoundingClientRect().width), 1);
-    const h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
-    const sc=Math.min(1, availW/w, availH/h);
+    let w=Math.max(pw.scrollWidth, Math.ceil(pw.getBoundingClientRect().width), 1);
+    let h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
+    /* grow mode — entry कम हो तो content बड़ा होकर पूरा A4 page भरेगा;
+       ज्यादा हो तो छोटा होकर हमेशा single page में ही fit रहेगा */
+    let sc=Math.min(availW/w, availH/h);
+    if(!grow) sc=Math.min(1,sc);
+    if(grow){
+      /* पहले height को page के हिसाब से बढ़ाओ — खाली जगह न रहे */
+      if(h*sc < availH*0.985){
+        pw.style.minHeight = Math.floor(availH/sc)+'px';
+        h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
+        sc=Math.min(availW/w, availH/h);
+      }
+      sc=Math.max(0.2, Math.min(sc, 3));
+    }
     pw.style.transformOrigin='top left';
     pw.style.transform='scale('+sc+')';
     st.style.width=Math.ceil(availW)+'px';
@@ -1058,6 +1078,7 @@ function printDocument(innerHTML,opt){
   opt = opt || {};
   const landscape = opt.landscape !== false;
   const stretch   = opt.stretch   !== false;
+  window.SG_GROW = !!opt.grow;      // true → छोटा content भी पूरा page में बड़ा होकर fit होगा
   const html      = printDocHTML(innerHTML,landscape);
   toast('🖨️ Print तैयार हो रहा है…');
 
@@ -1110,7 +1131,7 @@ function printNotebook(db,date,withTotal){
     q('#col-kharch')?.insertAdjacentHTML('beforeend', `<div class="total-block"><div class="t-line"></div>
       <div class="t-row green"><span class="t-num">${fmt(T.kharchT)}</span><span class="t-lbl final-name">→ नगद खर्च Total</span></div></div>`);
   }
-  printDocument(host.innerHTML,{landscape:true,stretch:true});
+  printDocument(host.innerHTML,{landscape:true,stretch:true,grow:true});
 }
 
 /* triple-click date → direct print (with total) */
@@ -1204,10 +1225,17 @@ function listDates(prefix){
 $('#rec-choose-nb').addEventListener('click',()=>{ recMode='nb'; showRecDates(); });
 $('#rec-choose-sb').addEventListener('click',()=>{ recMode='sb'; showRecDates(); });
 $('#rec-choose-att').addEventListener('click',()=>{ recMode='att'; showRecDates(); });
+$('#rec-choose-pr')?.addEventListener('click',()=>{ recMode='pr'; showRecDates(); });
 function showRecDates(){
-  const prefix = recMode==='nb'?'sg_nb_': recMode==='sb'?'sg_sb_':'sg_att_';
-  recDates=listDates(prefix);
-  const titles={nb:'\ud83d\udcd4 Notebook \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',sb:'\ud83d\udcda S.Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',att:'\ud83d\uddd3\ufe0f Attendance \u2014 \u092e\u0939\u0940\u0928\u093e \u091a\u0941\u0928\u0947\u0902'};
+  const prefix = recMode==='nb'?'sg_nb_': recMode==='sb'?'sg_sb_': recMode==='pr'?'sg_arcpt_':'sg_att_';
+  if(recMode==='pr'){
+    /* Atta + Wheat दोनों की तारीख़ें मिला कर */
+    const set={};
+    listDates('sg_arcpt_').forEach(d=>set[d]=1);
+    listDates('sg_wrcpt_').forEach(d=>set[d]=1);
+    recDates=Object.keys(set).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a)));
+  } else recDates=listDates(prefix);
+  const titles={nb:'\ud83d\udcd4 Notebook \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',sb:'\ud83d\udcda S.Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',att:'\ud83d\uddd3\ufe0f Attendance \u2014 \u092e\u0939\u0940\u0928\u093e \u091a\u0941\u0928\u0947\u0902',pr:'\ud83d\udda8\ufe0f Print Record \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902'};
   $('#rec-dates-title').textContent=titles[recMode];
   // महीने के हिसाब से group — 6 महीने का data भी आसानी से मिलेगा
   const MN=['','जनवरी','फरवरी','मार्च','अप्रैल','मई','जून','जुलाई','अगस्त','सितम्बर','अक्टूबर','नवम्बर','दिसम्बर'];
@@ -1234,9 +1262,13 @@ $('#rec-dates-list').addEventListener('click',e=>{
 function loadDB(prefix,d){ try{ const x=JSON.parse(localStorage.getItem(prefix+d)); if(x){migrate(x);} return x; }catch(e){ return null; } }
 function showRecordView(){
   const d=recDates[recIdx]; if(!d) return;
-  $('#rec-view-title').textContent=(recMode==='nb'?'\ud83d\udcd4 ':recMode==='sb'?'\ud83d\udcda ':'\ud83d\uddd3\ufe0f ')+d;
+  $('#rec-view-title').textContent=(recMode==='nb'?'\ud83d\udcd4 ':recMode==='sb'?'\ud83d\udcda ':recMode==='pr'?'\ud83d\udda8\ufe0f ':'\ud83d\uddd3\ufe0f ')+d;
   const wrap=$('#record-view-wrap');
   wrap.classList.remove('flip'); void wrap.offsetWidth; wrap.classList.add('flip');
+  if(recMode==='pr'){
+    wrap.innerHTML=printRecordHTML(d);
+    go('recordview'); return;
+  }
   if(recMode==='att'){
     wrap.innerHTML=`<div class="att-wrap" style="max-height:none;">${attTableHTML(d,false)}</div>`;
   }else{
@@ -1251,6 +1283,7 @@ $('#rec-prev').addEventListener('click',()=>{ if(recIdx<recDates.length-1){ recI
 $('#rec-next').addEventListener('click',()=>{ if(recIdx>0){ recIdx--; showRecordView(); } else toast('\u092f\u0939 \u0938\u092c\u0938\u0947 \u0928\u092f\u093e record \u0939\u0948'); });
 $('#rec-print').addEventListener('click',()=>{
   const d=recDates[recIdx]; if(!d) return;
+  if(recMode==='pr'){ printDocument(printRecordHTML(d),{landscape:false,stretch:true,grow:true}); return; }
   if(recMode==='att'){ printAttendance(d); return; }
   const db=loadDB(recMode==='nb'?'sg_nb_':'sg_sb_',d)||blank();
   db.totals=computeTotals(db);
@@ -1432,15 +1465,23 @@ function renderPrintHome(){
   $('#ph-rcpt-list').innerHTML = rc.length ? rc.map((r,i)=>{
     const nm=r.nameHi||r.name||'—', ad=r.addressHi||r.address||'';
     const chips=(r.items||[]).map(it=>`<span class="ph-chip">${esc(it.name||'Item')} — ${esc(String(it.qty||'0'))}</span>`).join('');
-    return `<div class="ph-row">
+    const box = r.cancelled
+      ? `<div class="vbox cancel" title="Cancel हुआ">✖</div>`
+      : (r.verified
+        ? `<div class="vbox done" title="${esc(r.vBy||'')} — ${esc(r.vts||'')}">✔<span class="vts">${esc(r.vts||'')}</span></div>`
+        : `<div class="vbox" data-vbox="${i}" title="Verify करने के लिए click करें">☐</div>`);
+    const cls = (r.cancelled?' ph-cut':'') + (r.rateEdited?' ph-red':'');
+    return `<div class="ph-row${cls}">
+      ${box}
       <span class="ph-sr">${esc(String(r.no||(i+1)))}</span>
       <div class="ph-info">
-        <div class="ph-name">${esc(nm)}${ad?` <small>(${esc(ad)})</small>`:''}</div>
+        <div class="ph-name">${esc(nm)}${ad?` <small>(${esc(ad)})</small>`:''}${r.fromNo?` <span class="ph-tag">↩ #${esc(String(r.fromNo))} से</span>`:''}${r.millReturn?` <span class="ph-tag">🏭 Mill Return ${esc(String(r.millReturn))}</span>`:''}</div>
         <div class="ph-part">${chips||'<i style="color:#b6bcc9">कोई item नहीं</i>'}</div>
       </div>
       <button class="ph-eye" data-view="rc" data-i="${i}" title="पूरा Receipt देखें">👁</button>
     </div>`;
   }).join('') : phEmpty('🧾','आज कोई Atta Receipt नहीं बना<br><small>ऊपर 🖨️ Print → Atta Print</small>');
+  updateVerifyBanner(rc);
 
   /* ---- Wheat Details : Sr. No | नाम (पता) | Total बोरा + Rate | 👁 ---- */
   $('#ph-wheat-list').innerHTML = wh.length ? wh.map((r,i)=>{
@@ -1559,6 +1600,284 @@ $('#ph-print-btn').addEventListener('click',()=>{
   });
 });
 
+/* =========================================================
+   ✅ ATTA RECEIPT — DOUBLE VERIFICATION SYSTEM (सिर्फ़ आटा में)
+   box → serial no confirm → Verify / Edit / Cancel
+========================================================= */
+function saveArc(list){ try{ localStorage.setItem(ARC_KEY(DATE),JSON.stringify(list)); }catch(e){} }
+function arcList(){ return loadArr(ARC_KEY(DATE)); }
+function itemQty(it){ return parseFloat(it.qty)||0; }
+function recTotalQty(r){ return (r.items||[]).reduce((a,x)=>a+itemQty(x),0); }
+function recalcRec(r){
+  let t=0;
+  (r.items||[]).forEach(it=>{ const a=(parseFloat(it.qty)||0)*(parseFloat(it.rate)||0); it.amount=a.toFixed(2); t+=a; });
+  r.total=t.toFixed(2);
+}
+function pendingVerify(list){ return (list||arcList()).filter(r=>!r.verified && !r.cancelled); }
+
+/* box click → serial confirm */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.vbox[data-vbox]'); if(!b) return;
+  const i=+b.dataset.vbox; askSerialThenOptions(i);
+});
+function askSerialThenOptions(i){
+  const list=arcList(), r=list[i]; if(!r) return;
+  popup({
+    title:'🔐 Receipt Verify — Serial No डालें',
+    body:`<div class="pp-note">इस line का Receipt Serial No भरें — तभी options खुलेंगे<br>
+        <small>नाम: <b>${esc(r.nameHi||r.name||'-')}</b> · तारीख़: <b>${esc(r.dateStr||r.date||'')}</b></small></div>
+      <div class="f-row"><label>Enter Receipt Serial No</label><input type="number" id="vs-no" inputmode="numeric" placeholder="जैसे ${esc(String(r.no||''))}"></div>
+      <div id="vs-err" style="display:none;color:#c0392b;font-weight:800;font-size:13px;margin-top:4px;"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="vs-go">आगे बढ़ें →</button></div>`,
+    onOpen(bk){
+      const inp=bk.querySelector('#vs-no'); inp.focus();
+      const err=m=>{ const d=bk.querySelector('#vs-err'); d.style.display='block'; d.textContent=m; };
+      const go=()=>{
+        const v=parseInt(inp.value);
+        if(!v){ err('❌ Serial No भरें'); return; }
+        if(v!==parseInt(r.no)){ err('❌ गलत Serial No — इस line का Serial '+r.no+' है'); return; }
+        if((r.date||'')!==DATE){ err('❌ यह receipt आज की तारीख़ का नहीं है — verify नहीं होगा'); return; }
+        closePopup(); openVerifyOptions(i);
+      };
+      bk.querySelector('#vs-go').addEventListener('click',go);
+      inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter') go(); });
+    }
+  });
+}
+function openVerifyOptions(i){
+  const r=arcList()[i]; if(!r) return;
+  popup({
+    title:'✅ Receipt #'+esc(String(r.no))+' — क्या करना है?',
+    body:`<div class="print-choice">
+        <button id="vo-verify"><span class="pc-ico">✅</span>Verify<br><small style="color:#8a94a6">किसने लिया — चुनें</small></button>
+        <button id="vo-edit"><span class="pc-ico">✏️</span>Edit<br><small style="color:#8a94a6">सिर्फ़ Rate बदलेगा</small></button>
+        <button id="vo-cancel"><span class="pc-ico">❌</span>Cancel<br><small style="color:#8a94a6">दूसरे नाम / Mill Return</small></button>
+      </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">बंद करें</button>`,
+    onOpen(bk){
+      bk.querySelector('#vo-verify').addEventListener('click',()=>{ closePopup(); openVerifyWho(i); });
+      bk.querySelector('#vo-edit').addEventListener('click',()=>{ closePopup(); openRcptEdit(i); });
+      bk.querySelector('#vo-cancel').addEventListener('click',()=>{ closePopup(); openRcptCancel(i); });
+    }
+  });
+}
+const V_WHO=[{k:'our_driver',n:'1. हमारा Driver'},{k:'dukaandaar',n:'2. दुकानदार'},{k:'our_erik',n:'3. हमारा E-Rikshaw'},{k:'vishnu',n:'4. विष्णु'}];
+function openVerifyWho(i){
+  popup({
+    title:'✅ किसको signature करा कर दिया?',
+    body:`<div class="chip-grid">${V_WHO.map(w=>`<div class="chip" data-who="${w.k}" data-n="${w.n}">${w.n}</div>`).join('')}</div>
+      <div class="pp-note">कोई एक चुनें → box time stamp के साथ बंद (lock) हो जाएगा 🔒</div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+        const list=arcList(), r=list[i]; if(!r) return;
+        r.verified=true; r.vBy=c.dataset.n; r.vts=nowTS(); r.vdate=DATE;
+        saveArc(list); closePopup(); renderPrintHome(); toast('✔ Verify हो गया — '+c.dataset.n+' ('+r.vts+')');
+      }));
+    }
+  });
+}
+/* Edit — सिर्फ़ Rate; बाक़ी सब lock */
+function openRcptEdit(i){
+  const list=arcList(), r=list[i]; if(!r) return;
+  const rows=(r.items||[]).map((it,k)=>`<tr>
+      <td style="text-align:center;">${k+1}</td>
+      <td><b>${esc(it.name||'-')}</b></td>
+      <td class="pv-right">${esc(String(it.qty||'0'))}</td>
+      <td class="pv-right"><input type="number" step="any" class="ed-rate" data-k="${k}" value="${esc(String(it.rate||''))}" style="width:80px;padding:4px;font-weight:800;text-align:right;border:1.5px solid #f39c12;border-radius:6px;"></td>
+      <td class="pv-right ed-amt" data-k="${k}"><b>${esc(it.amount||'0.00')}</b></td></tr>`).join('');
+  popup({
+    title:'✏️ Receipt #'+esc(String(r.no))+' — सिर्फ़ Rate बदलें',
+    body:`<div class="pv-paper" style="background:#fff;color:#000;padding:10px;border-radius:8px;">
+        <div style="text-align:center;font-weight:900;font-size:16px;">SATYAM FOOD PRODUCT</div>
+        <table class="pv-info"><tr><td><b>SI No:</b></td><td>${esc(String(r.no||''))}</td><td><b>Date:</b></td><td>${esc(r.dateStr||r.date||'')}</td></tr>
+          <tr><td><b>Name:</b></td><td>${esc(r.name||r.nameHi||'-')}</td><td><b>Address:</b></td><td>${esc(r.address||r.addressHi||'-')}</td></tr></table>
+        <table><thead><tr><th>#</th><th>Particulars</th><th>Qty</th><th>Rate ✏️</th><th>Amount</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td colspan="4" class="pv-right"><b>Total (₹):</b></td><td class="pv-right"><b id="ed-total">${esc(r.total||'0.00')}</b></td></tr></tfoot></table>
+      </div>
+      <div class="pp-note">नाम / पता / Particulars / Qty नहीं बदलेगा — सिर्फ़ Rate</div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ed-save">✓ Save Rate</button></div>`,
+    onOpen(bk){
+      const calc=()=>{
+        let t=0;
+        bk.querySelectorAll('.ed-rate').forEach(ip=>{
+          const k=+ip.dataset.k, q=parseFloat(r.items[k].qty)||0, rt=parseFloat(ip.value)||0;
+          const a=q*rt; t+=a;
+          bk.querySelector(`.ed-amt[data-k="${k}"]`).innerHTML='<b>'+a.toFixed(2)+'</b>';
+        });
+        bk.querySelector('#ed-total').textContent=t.toFixed(2);
+      };
+      bk.querySelectorAll('.ed-rate').forEach(ip=>ip.addEventListener('input',calc));
+      bk.querySelector('#ed-save').addEventListener('click',()=>{
+        bk.querySelectorAll('.ed-rate').forEach(ip=>{ r.items[+ip.dataset.k].rate=ip.value; });
+        recalcRec(r);
+        r.rateEdited=true; r.ets=nowTS();
+        saveArc(list); closePopup(); renderPrintHome(); toast('✏️ Rate update हो गया — हर जगह लागू ✔');
+      });
+    }
+  });
+}
+/* Cancel — दूसरे नाम पर / Mill Return; पूरा qty खत्म होना ज़रूरी */
+function openRcptCancel(i){
+  const list=arcList(), r=list[i]; if(!r) return;
+  const items=r.items||[];
+  const head=items.map(it=>`<th style="font-size:10px;">${esc(it.name||'Item')}<br><small>(${itemQty(it)})</small></th>`).join('');
+  let n=0;
+  const newRow=()=>{ n++; return `<tr data-cr="${n}">
+      <td><input type="text" class="cc-name" placeholder="नया नाम" style="width:100%;padding:4px;"></td>
+      <td><input type="text" class="cc-addr" placeholder="पता" style="width:100%;padding:4px;"></td>
+      ${items.map((it,k)=>`<td><input type="number" step="any" class="cc-q" data-k="${k}" placeholder="0" style="width:64px;padding:4px;text-align:right;"></td>`).join('')}
+      <td><button type="button" class="btn-x" style="background:#e74c3c;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-weight:800;">✕</button></td></tr>`; };
+  popup({
+    title:'❌ Receipt #'+esc(String(r.no))+' Cancel — किसके नाम गया?',
+    body:`<div class="pv-paper" style="background:#fff;color:#000;padding:10px;border-radius:8px;">
+        <div style="text-align:center;font-weight:900;">SATYAM FOOD PRODUCT — Receipt #${esc(String(r.no))}</div>
+        <table class="pv-info"><tr><td><b>Name:</b></td><td>${esc(r.name||r.nameHi||'-')}</td><td><b>Address:</b></td><td>${esc(r.address||r.addressHi||'-')}</td></tr></table>
+        <table><thead><tr><th>#</th><th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>
+          ${items.map((it,k)=>`<tr><td style="text-align:center;">${k+1}</td><td><b>${esc(it.name||'-')}</b></td>
+            <td class="pv-right">${esc(String(it.qty||'0'))}</td><td class="pv-right">${esc(String(it.rate||'0'))}</td>
+            <td class="pv-right"><b>${esc(it.amount||'0.00')}</b></td></tr>`).join('')}
+        </tbody></table>
+      </div>
+      <div class="pp-note">नये नाम + Quantity भरें (एक से ज़्यादा दुकानदार भी). जो माल <b>मिल में वापस</b> आया वह Mill Return में भरें.<br>
+        <b>पूरा Quantity खत्म होना ज़रूरी है</b> — नहीं तो Save नहीं होगा.</div>
+      <div style="overflow:auto;">
+        <table style="width:100%;font-size:12px;" id="cc-table">
+          <thead><tr><th>नया नाम</th><th>पता</th>${head}<th></th></tr></thead>
+          <tbody id="cc-body">${newRow()}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin:8px 0;"><button type="button" class="pp-btn" id="cc-add" style="background:#3498db;color:#fff;">➕ और दुकानदार</button></div>
+      <div style="overflow:auto;"><table style="width:100%;font-size:12px;"><thead><tr><th>🏭 Mill Return (वापस मिल में)</th>${head}</tr></thead>
+        <tbody><tr><td><b>मिल में जोड़ें</b></td>${items.map((it,k)=>`<td><input type="number" step="any" class="cc-mill" data-k="${k}" placeholder="0" style="width:64px;padding:4px;text-align:right;"></td>`).join('')}</tr></tbody></table></div>
+      <div id="cc-bal" style="font-weight:800;font-size:13px;margin-top:8px;"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">बंद करें</button><button class="pp-btn save" id="cc-save">✓ Cancel & Save</button></div>`,
+    onOpen(bk){
+      const body=bk.querySelector('#cc-body');
+      const bal=()=>{
+        const left=items.map((it,k)=>{
+          let used=0;
+          bk.querySelectorAll(`.cc-q[data-k="${k}"]`).forEach(x=>used+=parseFloat(x.value)||0);
+          const m=bk.querySelector(`.cc-mill[data-k="${k}"]`); used+=parseFloat(m&&m.value)||0;
+          return {n:it.name||'Item', l:itemQty(it)-used};
+        });
+        bk.querySelector('#cc-bal').innerHTML = left.map(x=>
+          `<span style="display:inline-block;margin-right:10px;color:${x.l===0?'#16a34a':'#c0392b'}">${esc(x.n)} बचा: ${x.l}</span>`).join('');
+        return left;
+      };
+      const wire=()=>{
+        bk.querySelectorAll('.cc-q,.cc-mill').forEach(x=>{ x.oninput=bal; });
+        bk.querySelectorAll('#cc-body .btn-x').forEach(b=>{ b.onclick=()=>{ if(body.children.length>1){ b.closest('tr').remove(); wire(); bal(); } }; });
+      };
+      wire(); bal();
+      bk.querySelector('#cc-add').addEventListener('click',()=>{ body.insertAdjacentHTML('beforeend',newRow()); wire(); bal(); });
+      bk.querySelector('#cc-save').addEventListener('click',()=>{
+        const left=bal();
+        if(left.some(x=>Math.abs(x.l)>0.0001)){ toast('❌ पूरा Quantity खत्म नहीं हुआ'); return; }
+        const fresh=[];
+        Array.from(body.children).forEach(tr=>{
+          const nm=tr.querySelector('.cc-name').value.trim();
+          const ad=tr.querySelector('.cc-addr').value.trim();
+          const its=[];
+          tr.querySelectorAll('.cc-q').forEach(q=>{
+            const k=+q.dataset.k, v=parseFloat(q.value)||0;
+            if(v>0) its.push({name:items[k].name,qty:String(v),rate:items[k].rate,amount:(v*(parseFloat(items[k].rate)||0)).toFixed(2)});
+          });
+          if(!its.length) return;
+          if(!nm){ toast('नाम भरें'); throw new Error('name'); }
+          const nr={no:r.no,date:DATE,dateStr:r.dateStr||DATE,name:nm,nameHi:nm,address:ad,addressHi:ad,
+            driver:r.driver||'',vehicle:r.vehicle||'',status:r.status||'DUE',items:its,total:'0.00',
+            ts:nowTS(),fromNo:r.no,verified:false};
+          recalcRec(nr); fresh.push(nr);
+        });
+        let mill=0; bk.querySelectorAll('.cc-mill').forEach(m=>mill+=parseFloat(m.value)||0);
+        r.cancelled=true; r.cts=nowTS(); r.verified=false;
+        if(mill>0) r.millReturn=mill;
+        const out=arcList();
+        out[i]=r;
+        fresh.forEach(f=>out.push(f));
+        saveArc(out); closePopup(); renderPrintHome();
+        toast('❌ Receipt #'+r.no+' cancel — '+fresh.length+' नया receipt बना'+(mill>0?' · Mill Return '+mill:''));
+      });
+    }
+  });
+}
+
+/* ---------- 📖 Record Book → Print Record (Atta receipts + Wheat slips उस दिन के) ---------- */
+function printRecordHTML(d){
+  const rc=loadArr(ARC_KEY(d)), wh=loadArr(WRC_KEY(d));
+  const rcRows=rc.length? rc.map((r,i)=>{
+    const items=(r.items||[]).map(it=>`${esc(it.name||'-')} ${esc(String(it.qty||0))}×${esc(String(it.rate||0))}`).join(', ');
+    const st=r.cancelled?'❌ CANCEL':(r.verified?('✔ '+esc(r.vBy||'')+' '+esc(r.vts||'')):'☐ Pending');
+    return `<tr style="${r.cancelled?'text-decoration:line-through;color:#c0392b;':(r.rateEdited?'color:#c0392b;':'')}">
+      <td style="text-align:center;">${esc(String(r.no||(i+1)))}</td>
+      <td><b>${esc(r.nameHi||r.name||'-')}</b><small> ${esc(r.addressHi||r.address||'')}</small></td>
+      <td style="font-size:10.5px;">${items||'-'}</td>
+      <td style="text-align:right;"><b>${esc(r.total||'0.00')}</b></td>
+      <td style="font-size:10px;">${st}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" style="text-align:center;">— कोई Atta Receipt नहीं —</td></tr>';
+  const whRows=wh.length? wh.map((r,i)=>`<tr>
+      <td style="text-align:center;">${esc(String(r.serial||r.no||(i+1)))}</td>
+      <td><b>${esc(r.nameHi||r.name||'-')}</b><small> ${esc(r.addressHi||r.address||'')}</small></td>
+      <td style="text-align:center;">${esc(String(r.bags||0))}</td>
+      <td style="text-align:center;">${n2(r.totalWt||r.net)}</td>
+      <td style="text-align:center;">${n2(r.rate)}</td>
+      <td style="text-align:right;"><b>${n2(r.finalPay)}</b></td>
+      <td style="text-align:center;font-size:10px;">${r.mode==='fill'?'FILL':'RST'}</td></tr>`).join('')
+    : '<tr><td colspan="7" style="text-align:center;">— कोई Wheat Slip नहीं —</td></tr>';
+  const rcT=rc.filter(r=>!r.cancelled).reduce((a,r)=>a+(parseFloat(r.total)||0),0);
+  const whT=wh.reduce((a,r)=>a+(parseFloat(r.finalPay)||0),0);
+  return `<div class="rec-print-doc" style="background:#fff;color:#000;padding:10px 12px;font-family:'Poppins','Noto Sans Devanagari',sans-serif;">
+    <div style="text-align:center;font-weight:900;font-size:19px;">SATYAM FOOD PRODUCT</div>
+    <div style="text-align:center;font-size:11.5px;font-weight:700;margin-bottom:8px;">Print Record — ${esc(d)}</div>
+    <div style="font-weight:900;font-size:13.5px;background:#243447;color:#fff;padding:4px 8px;border-radius:4px;">🧾 ATTA RECEIPTS (${rc.length})</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:10px;" border="1">
+      <thead style="background:#eef2f7;"><tr><th style="width:7%">Sr</th><th style="width:27%">नाम / पता</th><th style="width:36%">Particulars (Qty × Rate)</th><th style="width:14%">Total ₹</th><th style="width:16%">Verify</th></tr></thead>
+      <tbody>${rcRows}</tbody>
+      <tfoot><tr><td colspan="3" style="text-align:right;"><b>Atta Total (₹)</b></td><td style="text-align:right;"><b>${fmt(rcT)}</b></td><td></td></tr></tfoot></table>
+    <div style="font-weight:900;font-size:13.5px;background:#7a4b00;color:#fff;padding:4px 8px;border-radius:4px;">🌾 WHEAT SLIPS (${wh.length})</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px;" border="1">
+      <thead style="background:#fff5dd;"><tr><th style="width:7%">Sr</th><th style="width:30%">नाम / पता</th><th style="width:10%">बोरा</th><th style="width:13%">Wt (Kg)</th><th style="width:12%">Rate</th><th style="width:16%">Payable ₹</th><th style="width:12%">Mode</th></tr></thead>
+      <tbody>${whRows}</tbody>
+      <tfoot><tr><td colspan="5" style="text-align:right;"><b>Wheat Total (₹)</b></td><td style="text-align:right;"><b>${fmt(whT)}</b></td><td></td></tr></tfoot></table>
+    <div class="pv-sign" style="display:flex;justify-content:space-between;margin-top:26px;font-size:11.5px;font-weight:700;">
+      <div style="border-top:1px solid #000;padding-top:3px;width:30%;text-align:center;">Checked By</div>
+      <div style="border-top:1px solid #000;padding-top:3px;width:30%;text-align:center;">Authorised Signatory</div></div>
+  </div>`;
+}
+
+/* ---------- शाम 7 बजे reminder — सब box भरे बिना बार-बार popup ---------- */
+function updateVerifyBanner(list){
+  const el=$('#ph-vbanner'); if(!el) return;
+  const p=pendingVerify(list);
+  if(!p.length){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.innerHTML=`⏰ <b>${p.length}</b> Receipt अभी verify नहीं हुए — Serial: ${p.map(r=>'#'+esc(String(r.no))).join(', ')}`;
+}
+function eveningPending(){
+  if(new Date().getHours()<19) return [];
+  return pendingVerify();
+}
+function nagVerify(force){
+  const p=eveningPending();
+  if(!p.length) return false;
+  if($('#live-popup') && !force) return true;
+  popup({
+    title:'⏰ शाम हो गयी — Receipt Verify बाक़ी है',
+    body:`<div class="pp-note">नीचे के Receipt अभी तक verify नहीं हुए. हर entry पर यह reminder आता रहेगा जब तक सब box भर न जाएँ.</div>
+      ${p.map(r=>`<div style="padding:6px 10px;border:1.5px solid #f1c40f;border-radius:10px;margin-bottom:6px;font-weight:700;">
+        #${esc(String(r.no))} — ${esc(r.nameHi||r.name||'-')} <small>(${esc(r.addressHi||r.address||'')})</small></div>`).join('')}`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">बाद में</button><button class="pp-btn save" id="nv-go">अभी Verify करें →</button></div>`,
+    onOpen(bk){ bk.querySelector('#nv-go').addEventListener('click',()=>{ closePopup(); go('printhome'); }); }
+  });
+  return true;
+}
+const _saveOrig=save;
+save=function(){ _saveOrig(); setTimeout(()=>nagVerify(),400); };
+setInterval(()=>{ if(!$('#live-popup')) nagVerify(); },180000);
+
 /* init */
 renderAll();
+setTimeout(()=>nagVerify(),1500);
 window.closePopup=closePopup;

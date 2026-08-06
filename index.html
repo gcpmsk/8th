@@ -364,6 +364,21 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .ph-head.wheat{background:linear-gradient(135deg,#7d5a1e,#b8860b);}
 .ph-head .ph-cnt{background:rgba(255,255,255,.2);border-radius:20px;padding:3px 12px;font-size:13px;}
 .ph-list{padding:10px 12px 16px;display:flex;flex-direction:column;gap:9px;overflow:auto;max-height:66vh;}
+.vbox{flex:0 0 auto;width:34px;min-height:34px;border:2.5px solid #57606f;border-radius:9px;display:grid;place-items:center;
+  font-weight:900;font-size:16px;color:#57606f;cursor:pointer;background:#fff;line-height:1;padding:2px;transition:.15s;}
+.vbox:hover{border-color:#f39c12;color:#f39c12;transform:scale(1.06);}
+.vbox.done{border-color:#16a34a;background:#eafaf0;color:#16a34a;cursor:default;font-size:14px;flex-direction:column;}
+.vbox.done .vts{display:block;font-size:7.5px;font-weight:800;letter-spacing:0;color:#0f7a3d;}
+.vbox.cancel{border-color:#e74c3c;background:#fdecea;color:#e74c3c;cursor:default;}
+.ph-row.ph-cut{opacity:.75;}
+.ph-row.ph-cut .ph-name,.ph-row.ph-cut .ph-part{text-decoration:line-through;text-decoration-color:#e74c3c;text-decoration-thickness:2px;}
+.ph-row.ph-cut .ph-sr{background:linear-gradient(135deg,#e74c3c,#c0392b)!important;}
+.ph-row.ph-red{border-color:#e74c3c!important;background:linear-gradient(180deg,#fff,#fff6f5)!important;}
+.ph-row.ph-red .ph-name,.ph-row.ph-red .ph-part{color:#c0392b!important;}
+.ph-row.ph-red .ph-sr{background:linear-gradient(135deg,#e74c3c,#c0392b)!important;}
+.ph-tag{display:inline-block;font-size:10.5px;font-weight:800;background:#243447;color:#f1c40f;border-radius:20px;padding:1px 8px;margin-left:4px;}
+#ph-vbanner{display:none;grid-column:1/-1;background:linear-gradient(90deg,#fff8e1,#fffdf5);border:2px solid #f1c40f;
+  border-radius:14px;padding:10px 14px;font-weight:700;font-size:13.5px;color:#7a5b00;font-family:'Noto Sans Devanagari','Poppins';}
 .ph-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.6px solid #eef2f7;border-radius:14px;
   background:linear-gradient(180deg,#fff,#fbfcfe);transition:.2s;}
 .ph-row:hover{border-color:#d8e0ea;box-shadow:0 8px 18px -12px rgba(0,0,0,.35);}
@@ -511,7 +526,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <div class="ph-date" id="ph-date">--</div>
     <div class="right-tools"><button class="nb-tool gold" id="ph-print-btn">🖨️ Print</button></div>
   </div>
-  <div class="ph-wrap">
+  <div class="ph-wrap"><div id="ph-vbanner"></div>
     <div class="ph-panel">
       <div class="ph-head atta">🧾 Receipt Details <span class="ph-cnt" id="ph-rc-cnt">0</span></div>
       <div class="ph-list" id="ph-rcpt-list"></div>
@@ -528,6 +543,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <button id="rec-choose-nb"><span class="pc-ico">📔</span>Notebook<br><small style="color:#8a94a6">Daily बही-खाता</small></button>
     <button id="rec-choose-sb"><span class="pc-ico">📚</span>S.Book<br><small style="color:#8a94a6">Special Book</small></button>
     <button id="rec-choose-att"><span class="pc-ico">🗓️</span>Attendance<br><small style="color:#8a94a6">पिछले महीने</small></button>
+    <button id="rec-choose-pr"><span class="pc-ico">🖨️</span>Print Record<br><small style="color:#8a94a6">Atta Receipt + Wheat Slip</small></button>
   </div></div>
 <div class="screen sub-screen" id="recorddates-screen"><div class="sub-head"><button class="back-btn" data-go="recordbook">← Back</button><div class="sub-title" id="rec-dates-title">📅 तारीख़ चुनें</div></div><div class="rec-list" id="rec-dates-list"></div></div>
 <div class="screen sub-screen" id="recordview-screen">
