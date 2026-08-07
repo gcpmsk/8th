@@ -420,6 +420,32 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .pv-paper .pv-right{text-align:right;}
 .pv-paper .pv-sign{display:flex;justify-content:space-between;margin-top:22px;}
 .pv-paper .pv-sign div{width:150px;border-top:1px solid #000;text-align:center;padding-top:4px;font-size:11px;font-weight:700;}
+
+/* ================= 📚 S.BOOK ================= */
+#sbook-screen{background:linear-gradient(160deg,#fdfcf7,#f4f1ea);padding:14px 8px 30px;}
+.sbook .sb-line{display:flex;align-items:flex-start;gap:4px;font-family:'Kalam','Noto Sans Devanagari',cursive;
+  font-size:clamp(11.5px,1.2vw,16px);font-weight:700;padding:2px 0;line-height:1.35;cursor:pointer;}
+.sbook .sb-line:hover{background:rgba(243,156,18,.07);border-radius:5px;}
+.sbook .sb-amt{font-weight:800;border-bottom:2px solid currentColor;border-right:2px solid currentColor;
+  border-bottom-right-radius:6px;padding:0 5px 0 2px;margin-right:6px;white-space:nowrap;flex:0 0 auto;min-width:44px;text-align:right;}
+.sbook .sb-txt{flex:1 1 auto;}
+.sbook .sb-line.blue{color:#14213d;}
+.sbook .sb-line.red{color:#c0392b;}
+.sbook .sb-line.pend{color:#8a94a6;}
+.sbook .sb-sub{font-size:.85em;font-weight:600;padding-left:6px;color:inherit;opacity:.9;}
+.sbook .sb-sub.big{font-size:1em;font-weight:800;}
+.sbook .sb-empty{font-family:'Poppins';font-size:11px;color:#c3cad6;padding:6px 2px;}
+.sbook .sb-grp{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;}
+.sbook .sb-grp-lines{flex:1 1 auto;}
+.sbook .sb-circle{flex:0 0 auto;align-self:flex-start;margin-top:2px;font-family:'Kalam',cursive;font-weight:800;
+  font-size:clamp(11px,1.15vw,15px);border:2.2px solid currentColor;border-radius:50%;padding:5px 9px;white-space:nowrap;}
+.sbook .sb-circle.red{color:#c0392b;}
+.sbook .sb-circle.blue{color:#1f4e9c;}
+.sbook .kh-top{border-bottom:1.5px dashed #cbd3e0;margin-bottom:3px;}
+.sbook .sb-branch{padding-left:14px;border-left:2px solid #cbd3e0;margin-left:6px;}
+.sbook .kharch-divider.red-div{color:#c0392b;}
+.sbook .red-col .sb-line{color:#c0392b!important;}
+.sbook .nb-col-stack .nb-col:first-child{flex:1 0 auto;}
 </style>
 </head>
 <body>
@@ -506,7 +532,16 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 </div>
 
 <!-- OTHER SCREENS -->
-<div class="screen sub-screen" id="sbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📚 S.Book</div></div><div class="placeholder-card"><span class="big-ico">📚</span><h3>Special Book</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
+<div class="screen sub-screen" id="sbook-screen">
+  <div class="nb-topbar">
+    <div class="left-tools"><button class="nb-tool grey" data-go="home">← Home</button></div>
+    <div class="nb-date" id="sb-date">--</div>
+    <div class="right-tools"><button class="nb-tool gold" id="sb-print-btn">🖨️ Print</button></div>
+  </div>
+  <div class="notebook-wrap">
+    <div class="notebook sbook" id="sbook"></div>
+  </div>
+</div>
 <div class="screen sub-screen" id="orderbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">🧾 Order Book</div></div><div class="placeholder-card"><span class="big-ico">🧾</span><h3>Order Book</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
 <div class="screen sub-screen" id="attendance-screen">
   <div class="att-topbar">
@@ -563,5 +598,6 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 <div id="popups-root"></div>
 
 <script src="app.js"></script>
+<script src="sbook.js"></script>
 </body>
 </html>
