@@ -506,6 +506,8 @@
         </div>
     </div>
 
+    <div id="ord-banner" class="no-print" style="display:none;margin:0 0 10px;padding:9px 13px;border:2px solid #f39c12;background:#fff8e6;border-radius:10px;font-weight:700;font-size:13.5px;color:#7a4b00;"></div>
+
     <!-- MAIN FORM RECEIPT -->
     <div class="bill-card no-print">
         <div class="receipt-header-box">
@@ -817,14 +819,55 @@
     const ARC_KEY = 'sg_arcpt_' + APP_DATE;
     function loadArcpts(){ try{ return JSON.parse(localStorage.getItem(ARC_KEY))||[]; }catch(e){ return []; } }
     function saveArcpts(a){ try{ localStorage.setItem(ARC_KEY, JSON.stringify(a)); }catch(e){} }
-    function goBackApp(){ location.href = 'index.html#print'; }
+    /* Order Book से आये हैं तो वापस Order Book पर */
+    let ORD_LINK = null;
+    function goBackApp(){ location.href = ORD_LINK ? 'index.html#orderbook' : 'index.html#print'; }
 
     document.addEventListener('DOMContentLoaded', () => {
         setTodayDate();
         currentSlNo = loadArcpts().length + 1;
         document.getElementById('inp-slno').value = formatSl(currentSlNo);
-        addNewRow(); 
+        if(!applyOrderPrefill()) addNewRow();
     });
+
+    /* ---------- ORDER BOOK → auto-fill ---------- */
+    function applyOrderPrefill(){
+        if(location.search.indexOf('ord=1') < 0) return false;
+        let p=null; try{ p=JSON.parse(localStorage.getItem('sg_ord_prefill')||'null'); }catch(e){}
+        if(!p || !p.items || !p.items.length) return false;
+        ORD_LINK = {ordDate:p.ordDate, ordId:p.ordId};
+        document.getElementById('inp-name').value       = p.name||'';
+        document.getElementById('inp-name-hi').value    = p.nameHi||'';
+        document.getElementById('inp-address').value    = p.address||'';
+        document.getElementById('inp-address-hi').value = p.addressHi||'';
+        p.items.forEach((it,i)=>{
+            addNewRow();
+            const t=document.getElementById(`part-text-input-${i}`);
+            const q=document.getElementById(`qty-${i}`);
+            const r=document.getElementById(`rate-${i}`);
+            if(t) t.value = it.name||'';
+            if(q) q.value = it.qty||'';
+            if(r) r.value = it.rate||'';
+            calculateRow(i);
+        });
+        const bn=document.getElementById('ord-banner');
+        if(bn){ bn.style.display='block';
+            bn.innerHTML = `📋 Order Book से auto-fill — Order #${p.no||''} · ${(p.name||'').toUpperCase()} · Print होते ही यह order <b>TODAY COMPLEAT</b> में चला जाएगा`; }
+        try{ localStorage.removeItem('sg_ord_prefill'); }catch(e){}
+        return true;
+    }
+    /* receipt बन गया → order complete */
+    function markOrderComplete(){
+        if(!ORD_LINK) return;
+        try{
+            const k='sg_ord_'+ORD_LINK.ordDate;
+            const l=JSON.parse(localStorage.getItem(k)||'[]');
+            const o=l.find(x=>x.id===ORD_LINK.ordId);
+            if(o){ o.done=true; o.doneDate=APP_DATE;
+                o.doneTs=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+                localStorage.setItem(k,JSON.stringify(l)); }
+        }catch(e){}
+    }
 
     function setTodayDate() {
         const today = new Date();
@@ -1142,6 +1185,7 @@
         closeModal('modal-print-confirm');
         captureSnapshotForPrint();
         saveReceiptToApp();
+        markOrderComplete();
         
         setTimeout(() => {
             window.print();
