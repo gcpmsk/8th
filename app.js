@@ -1227,16 +1227,21 @@ $('#rec-choose-nb').addEventListener('click',()=>{ recMode='nb'; showRecDates();
 $('#rec-choose-sb').addEventListener('click',()=>{ recMode='sb'; showRecDates(); });
 $('#rec-choose-att').addEventListener('click',()=>{ recMode='att'; showRecDates(); });
 $('#rec-choose-pr')?.addEventListener('click',()=>{ recMode='pr'; showRecDates(); });
+$('#rec-choose-ob')?.addEventListener('click',()=>{ recMode='ob'; showRecDates(); });
 function showRecDates(){
-  const prefix = recMode==='nb'?'sg_nb_': recMode==='sb'?'sg_sb_': recMode==='pr'?'sg_arcpt_':'sg_att_';
+  const prefix = recMode==='nb'?'sg_nb_': recMode==='sb'?'sg_sb_': recMode==='pr'?'sg_arcpt_': recMode==='ob'?'sg_ord_':'sg_att_';
   if(recMode==='pr'){
     /* Atta + Wheat दोनों की तारीख़ें मिला कर */
     const set={};
     listDates('sg_arcpt_').forEach(d=>set[d]=1);
     listDates('sg_wrcpt_').forEach(d=>set[d]=1);
     recDates=Object.keys(set).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a)));
+  } else if(recMode==='ob'){
+    /* Order Book — आज की तारीख़ हमेशा दिखे (चाहे अभी कोई order न हो) + सभी पिछली तारीख़ें */
+    const set={}; listDates('sg_ord_').forEach(d=>set[d]=1); set[DATE]=1;
+    recDates=Object.keys(set).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a)));
   } else recDates=listDates(prefix);
-  const titles={nb:'\ud83d\udcd4 Notebook \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',sb:'\ud83d\udcda S.Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',att:'\ud83d\uddd3\ufe0f Attendance \u2014 \u092e\u0939\u0940\u0928\u093e \u091a\u0941\u0928\u0947\u0902',pr:'\ud83d\udda8\ufe0f Print Record \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902'};
+  const titles={nb:'\ud83d\udcd4 Notebook \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',sb:'\ud83d\udcda S.Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',att:'\ud83d\uddd3\ufe0f Attendance \u2014 \u092e\u0939\u0940\u0928\u093e \u091a\u0941\u0928\u0947\u0902',pr:'\ud83d\udda8\ufe0f Print Record \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902',ob:'\ud83e\uddfe Order Book \u2014 \u0924\u093e\u0930\u0940\u0916\u093c \u091a\u0941\u0928\u0947\u0902'};
   $('#rec-dates-title').textContent=titles[recMode];
   // महीने के हिसाब से group — 6 महीने का data भी आसानी से मिलेगा
   const MN=['','जनवरी','फरवरी','मार्च','अप्रैल','मई','जून','जुलाई','अगस्त','सितम्बर','अक्टूबर','नवम्बर','दिसम्बर'];
@@ -1263,11 +1268,15 @@ $('#rec-dates-list').addEventListener('click',e=>{
 function loadDB(prefix,d){ try{ const x=JSON.parse(localStorage.getItem(prefix+d)); if(x){migrate(x);} return x; }catch(e){ return null; } }
 function showRecordView(){
   const d=recDates[recIdx]; if(!d) return;
-  $('#rec-view-title').textContent=(recMode==='nb'?'\ud83d\udcd4 ':recMode==='sb'?'\ud83d\udcda ':recMode==='pr'?'\ud83d\udda8\ufe0f ':'\ud83d\uddd3\ufe0f ')+d;
+  $('#rec-view-title').textContent=(recMode==='nb'?'\ud83d\udcd4 ':recMode==='sb'?'\ud83d\udcda ':recMode==='pr'?'\ud83d\udda8\ufe0f ':recMode==='ob'?'\ud83e\uddfe ':'\ud83d\uddd3\ufe0f ')+d;
   const wrap=$('#record-view-wrap');
   wrap.classList.remove('flip'); void wrap.offsetWidth; wrap.classList.add('flip');
   if(recMode==='pr'){
     wrap.innerHTML=printRecordHTML(d);
+    go('recordview'); return;
+  }
+  if(recMode==='ob'){
+    wrap.innerHTML=(typeof orderBookPrintHTML==='function')? orderBookPrintHTML(d,true) : '';
     go('recordview'); return;
   }
   if(recMode==='att'){
@@ -1285,6 +1294,7 @@ $('#rec-next').addEventListener('click',()=>{ if(recIdx>0){ recIdx--; showRecord
 $('#rec-print').addEventListener('click',()=>{
   const d=recDates[recIdx]; if(!d) return;
   if(recMode==='pr'){ printDocument(printRecordHTML(d),{landscape:false,stretch:true,grow:true}); return; }
+  if(recMode==='ob'){ printDocument(orderBookPrintHTML(d,true),{landscape:false,stretch:true,grow:true}); return; }
   if(recMode==='att'){ printAttendance(d); return; }
   const db=loadDB(recMode==='nb'?'sg_nb_':'sg_sb_',d)||blank();
   db.totals=computeTotals(db);

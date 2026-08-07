@@ -158,3 +158,45 @@ Just open `index.html` — pure HTML/CSS/JS, no build step.
 python3 -m http.server 8080
 # → http://localhost:8080/index.html
 ```
+
+---
+
+## 🧾 ORDER BOOK (नया)
+
+Home → **Order Book** tile.
+
+### ऊपर
+`← Home` | **तारीख़** | `🖨️ Print`
+
+### TOTAL box
+सारे **pending** order (पिछली तारीख़ + आज) का particular-wise Qty —
+सिर्फ़ नाम + qty, जैसे `ATTA ग - 500`, `ATTA 10KG - 120`, `CHOKAR 30kg - 40`.
+
+### Area-wise
+पता से area अपने आप पहचान — **KHAGARIA (KKG), MANSHI (MNS), MAHESHKHUNT (MSK),
+GOGRI (GG), GOGRI JAMALPUR (GJP), KARUAAMOR (KAM), CHOTHAM (CTM), SONBARSHA (SNB),
+SAHARSA (SHR), PARBATTA, BELDAUR, ALAULI, BAKHRI, BEGUSARAI, JAMALPUR (JMP)**.
+जिस area में 1 या 1 से ज़्यादा order है, वहाँ का box दिखेगा —
+Atta / Chokar / Sattu / Besan सबका **area total**.
+
+### नाम
+Type सिर्फ़ **English** में, दिखेगा **English + Hindi** दोनों
+(offline transliteration + online होने पर Google से सुधार).
+`RAJU JEE (राजू जी)` जैसा — image वाले style में.
+
+### Order box
+- **Serial No पहले** (गोल circle में)
+- **पिछली तारीख़ का order = पूरा लाल** + `🕐 समय · तारीख़` stamp
+- आज का order = नीला time stamp
+- हर order एक **click-able box** → Atta Receipt में नाम/पता/item/qty/rate **auto-fill**
+- Rate न भरा हो (जैसे `ATTA ग 10×`) → click पर पहले **Order Book में rate माँगेगा**,
+  rate भरने से पहले Atta Receipt में कुछ नहीं भरेगा
+
+### TODAY COMPLEAT
+Atta Receipt print होते ही order अपने आप **Serial No के साथ** COMPLEAT column में
+(✅ समय stamp; back-date order हो तो order की तारीख़ भी).
+गलती हो तो box → `↩ फिर बाक़ी करें`.
+
+### Record Book
+Record Book → **🧾 Order Book** → तारीख़ list.
+किसी भी तारीख़ पर आज का + उससे पुराने बचे हुए order — दोनों दिखेंगे, print भी.

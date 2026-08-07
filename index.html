@@ -470,6 +470,73 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .sbook .sb-hand{font-family:'Poppins',sans-serif;font-size:9px;font-weight:700;opacity:.72;
   margin-left:5px;white-space:nowrap;letter-spacing:.2px;}
 .sbook .sb-hand .hs{font-size:10.5px;}
+/* ================= ORDER BOOK ================= */
+#orderbook-screen{display:none;}
+#orderbook-screen.active{display:block;padding:14px 12px 40px;}
+.ob-top{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1180px;margin:0 auto 12px;flex-wrap:wrap;}
+.ob-dt{font-family:'Kalam',cursive;font-weight:800;font-size:clamp(18px,2.4vw,28px);text-decoration:underline;color:#14213d;letter-spacing:1px;}
+.ob-wrap{max-width:1180px;margin:0 auto;background:#fdfbf3;border:2px solid #14213d;border-radius:12px;padding:14px 12px 22px;
+  box-shadow:0 16px 40px -18px rgba(20,33,61,.4);font-family:'Kalam','Noto Sans Devanagari',cursive;}
+.ob-total-wrap{text-align:center;}
+.ob-total-title{font-weight:800;font-size:clamp(20px,2.6vw,30px);text-decoration:underline;letter-spacing:2px;}
+.ob-total-stem{width:2.5px;height:22px;background:#111;margin:0 auto;}
+.ob-total-box{border:3px solid #111;border-radius:4px;min-height:110px;padding:10px 14px;text-align:left;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 18px;background:#fff;}
+.ob-tot-line{display:flex;align-items:baseline;gap:6px;font-size:clamp(14px,1.5vw,19px);font-weight:700;}
+.ob-tot-n{letter-spacing:1px;}
+.ob-tot-d{color:#888;}
+.ob-tot-q{font-weight:800;border-bottom:2px solid #14213d;padding:0 5px;}
+.ob-area-row{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;border-top:2.5px solid #333;padding-top:10px;}
+.ob-area{border:2px solid var(--ac);border-radius:6px;padding:4px 9px 3px;min-width:150px;background:#fff;}
+.ob-area-h{font-size:12.5px;font-weight:800;color:var(--ac);letter-spacing:1px;text-decoration:underline;}
+.ob-area-h small{font-weight:600;text-decoration:none;}
+.ob-area-h b{background:var(--ac);color:#fff;border-radius:4px;padding:0 5px;font-size:10.5px;text-decoration:none;}
+.ob-area-l{font-size:13px;font-weight:700;display:flex;justify-content:space-between;gap:10px;}
+.ob-area-l span{border-bottom:1.5px solid #14213d;padding:0 4px;}
+.ob-area-f{font-size:10px;color:#8a94a6;font-family:'Poppins';text-align:right;}
+.ob-cols{display:flex;gap:10px;margin-top:14px;border-top:2.5px solid #333;padding-top:10px;flex-wrap:wrap;}
+.ob-col{flex:1;min-width:290px;}
+.ob-col.right{border-left:2px solid #c0392b;padding-left:10px;}
+.ob-col-h{font-family:'Poppins';font-weight:800;font-size:13.5px;letter-spacing:1px;padding:4px 9px;border-radius:6px;margin-bottom:8px;color:#fff;}
+.ob-col-h.red{background:#243447;}
+.ob-col-h.green{background:#c0392b;}
+.ob-sub{font-family:'Poppins';font-size:11.5px;font-weight:700;color:#1f618d;margin:8px 0 5px;letter-spacing:.5px;}
+.ob-sub.back{color:#c0392b;}
+.ob-box{border:2px solid #14213d;border-radius:9px;background:#fff;padding:6px 9px 5px;margin-bottom:8px;cursor:pointer;transition:.18s;}
+.ob-box:hover{transform:translateY(-2px);box-shadow:0 10px 20px -12px rgba(20,33,61,.6);border-color:#f39c12;}
+.ob-box.back{border-color:#c0392b;background:#fff6f5;color:#c0392b;}
+.ob-box.done{border-color:#1e8449;background:#f4fdf7;}
+.ob-box-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.ob-sl{border:2px solid currentColor;border-radius:50%;min-width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;}
+.ob-sl.green{color:#1e8449;}
+.ob-nm{font-weight:800;font-size:clamp(14px,1.5vw,18px);letter-spacing:.5px;}
+.ob-nm i{font-style:normal;font-weight:700;font-size:.82em;margin-left:4px;opacity:.8;}
+.ob-ac{background:#14213d;color:#fff;font-family:'Poppins';font-size:10px;font-weight:800;border-radius:4px;padding:1px 6px;}
+.ob-box.back .ob-ac{background:#c0392b;}
+.ob-stamp{font-family:'Poppins';font-size:9.5px;font-weight:700;margin-left:auto;background:#fff7e0;color:#e67e22;border-radius:5px;padding:1px 6px;white-space:nowrap;}
+.ob-stamp.t{background:#eef6ff;color:#1f618d;}
+.ob-stamp.ok{background:#eaf7ef;color:#1e8449;}
+.ob-items{padding:2px 0 0 8px;}
+.ob-item{font-size:clamp(13px,1.4vw,17px);font-weight:700;letter-spacing:.5px;}
+.ob-item.big{font-size:17px;padding:3px 0;border-bottom:1px dashed #dde3ec;}
+.ob-item b{font-weight:800;padding:0 3px;}
+.ob-item .ob-x{font-size:.75em;opacity:.55;margin:0 2px;}
+.ob-rate{border-bottom:2px solid #14213d;padding:0 4px;font-weight:800;}
+.ob-norate{font-family:'Poppins';font-size:10.5px;font-weight:700;color:#fff;background:#e17055;border-radius:5px;padding:1px 6px;}
+.ob-note{font-family:'Poppins';font-size:10px;color:#8a94a6;}
+.ob-box-foot{font-family:'Poppins';font-size:10px;color:#8a94a6;text-align:right;margin-top:2px;}
+.ob-empty{font-family:'Poppins';font-size:12px;color:#b6bcc9;text-align:center;padding:14px;}
+.ob-add{margin:10px 2px 2px;border:1.8px dashed #cbd3e0;border-radius:9px;color:#8a94a6;text-align:center;font-size:13px;
+  padding:9px;font-family:'Poppins';font-weight:700;cursor:pointer;transition:.2s;}
+.ob-add:hover{border-color:#f39c12;color:#e67e22;background:rgba(243,156,18,.07);}
+.ob-frow{display:flex;gap:5px;margin-bottom:6px;flex-wrap:wrap;}
+.ob-frow select,.ob-frow input{flex:1;min-width:88px;padding:8px 9px;border:2px solid #e3e9f2;border-radius:9px;font-size:13.5px;outline:none;background:#fbfdff;font-family:'Poppins';}
+.ob-frow select:focus,.ob-frow input:focus{border-color:#f1c40f;}
+.ob-frow .of-del{background:#e74c3c;color:#fff;border:none;border-radius:9px;padding:0 11px;font-weight:800;cursor:pointer;}
+.chip.sm{padding:6px 8px;font-size:12px;font-family:'Poppins';}
+.chip.sm small{display:block;font-size:9px;opacity:.6;}
+#of-name-hi.hi{font-family:'Noto Sans Devanagari';background:#fffdf0;border-color:#f1c40f;}
+@media print{ .ob-top,.ob-add{display:none!important;} }
 </style>
 </head>
 <body>
@@ -566,7 +633,14 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <div class="notebook sbook" id="sbook"></div>
   </div>
 </div>
-<div class="screen sub-screen" id="orderbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">🧾 Order Book</div></div><div class="placeholder-card"><span class="big-ico">🧾</span><h3>Order Book</h3><p>जल्द आ रहा है… (Coming Soon)</p></div></div>
+<div class="screen sub-screen" id="orderbook-screen">
+  <div class="ob-top">
+    <button class="nb-tool grey" data-go="home">← Home</button>
+    <div class="ob-dt" id="ob-date">--</div>
+    <button class="nb-tool gold" id="ob-print-btn">🖨️ Print</button>
+  </div>
+  <div class="ob-wrap" id="ob-body"></div>
+</div>
 <div class="screen sub-screen" id="attendance-screen">
   <div class="att-topbar">
     <button class="nb-tool grey" data-go="home">← Home</button>
@@ -603,6 +677,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <button id="rec-choose-sb"><span class="pc-ico">📚</span>S.Book<br><small style="color:#8a94a6">Special Book</small></button>
     <button id="rec-choose-att"><span class="pc-ico">🗓️</span>Attendance<br><small style="color:#8a94a6">पिछले महीने</small></button>
     <button id="rec-choose-pr"><span class="pc-ico">🖨️</span>Print Record<br><small style="color:#8a94a6">Atta Receipt + Wheat Slip</small></button>
+    <button id="rec-choose-ob"><span class="pc-ico">🧾</span>Order Book<br><small style="color:#8a94a6">पिछली + आज की तारीख़</small></button>
   </div></div>
 <div class="screen sub-screen" id="recorddates-screen"><div class="sub-head"><button class="back-btn" data-go="recordbook">← Back</button><div class="sub-title" id="rec-dates-title">📅 तारीख़ चुनें</div></div><div class="rec-list" id="rec-dates-list"></div></div>
 <div class="screen sub-screen" id="recordview-screen">
@@ -623,5 +698,6 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 
 <script src="app.js"></script>
 <script src="sbook.js"></script>
+<script src="orderbook.js"></script>
 </body>
 </html>
