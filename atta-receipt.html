@@ -807,7 +807,7 @@
         'Atta': ['Atta Gold', 'Atta 18kg', 'Atta 10kg', 'Atta 5kg', 'Atta 47kg', 'Atta 50kg'],
         'Sattu': ['Sattu 200g', 'Sattu 500g'],
         'Besan': ['Besan 200g', 'Besan 500g'],
-        'Chokar': ['Chokar 25kg', 'Chokar 40kg', 'Chokar 50kg'],
+        'Chokar': ['Chokar (30kg)'],
         'Jut Bora': ['Jut Bora (Fresh)', 'Jut Bora (Normal)']
     };
 
@@ -845,7 +845,8 @@
             const q = document.getElementById(`qty-${i}`);
             const r = document.getElementById(`rate-${i}`);
             const a = document.getElementById(`amount-${i}`);
-            const name = t ? t.value.trim() : '';
+            let name = t ? t.value.trim() : '';
+            if(/^chokar/i.test(name)) name = 'Chokar (30kg)';
             const qty  = q ? q.value : '';
             if(!name && !qty) continue;
             items.push({ name, qty, rate: r? r.value : '', amount: a? a.textContent : '0.00' });
@@ -994,7 +995,10 @@
 
     function chooseCategory(cat) {
         closeModal('modal-category');
-        showSubcategories(cat, subcategoriesMap[cat]);
+        const list = subcategoriesMap[cat] || [];
+        // Chokar में सिर्फ़ एक ही variety (30kg) है — सीधे भर दो
+        if (list.length === 1) { setParticularsValue(list[0]); return; }
+        showSubcategories(cat, list);
     }
 
     function showSubcategories(cat, items) {
@@ -1029,6 +1033,8 @@
     }
 
     function setParticularsValue(val) {
+        // Chokar हमेशा 30kg — पुराना 25/40/50kg नाम भी normalize हो जाए
+        if (/^chokar/i.test(val)) val = 'Chokar (30kg)';
         if (targetRowIndex !== null) {
             const partInput = document.getElementById(`part-text-input-${targetRowIndex}`);
             if (partInput) {
@@ -1096,7 +1102,9 @@
 
         for (let i = 0; i < tbody.children.length; i++) {
             const textInput = document.getElementById(`part-text-input-${i}`);
-            const itemText = textInput ? textInput.value : '';
+            let itemText = textInput ? textInput.value : '';
+            // Print में Chokar हमेशा "Chokar (30kg)" ही छपे
+            if(/^chokar/i.test(itemText.trim())) itemText = 'Chokar (30kg)';
             
             const qty = document.getElementById(`qty-${i}`) ? document.getElementById(`qty-${i}`).value : '';
             const rate = document.getElementById(`rate-${i}`) ? document.getElementById(`rate-${i}`).value : '';
