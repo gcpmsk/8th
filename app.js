@@ -29,6 +29,7 @@ let go=function(name){
   window.scrollTo(0,0);
   if(name==='notebook') renderAll();
   if(name==='printhome') renderPrintHome();
+  if(name==='sbook' && typeof renderSBook==='function') renderSBook();
 }
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');
