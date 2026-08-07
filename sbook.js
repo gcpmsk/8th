@@ -17,6 +17,21 @@ let SB_DATE = (typeof DATE!=='undefined'? DATE : todayStr());
 let SBM = sbBlank();
 
 function sbNum(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+
+/* ✋ अपने से (manual) लिखी entry — hand symbol + time stamp */
+function sbHand(x){
+  return `<span class="sb-hand"><span class="hs">✋</span>${x&&x.ts?' '+esc(x.ts):''}</span>`;
+}
+/* manual line — हर section के लिए एक ही जगह से (hand + ts के साथ) */
+function sbManLine(sec,x,forceRed){
+  const i=(SBM[sec]||[]).indexOf(x);
+  const red = forceRed || x.red;
+  return `<div class="sb-line sb-manual ${red?'red':'blue'}" data-sbsec="${sec}" data-i="${i}">
+    <span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}${sbHand(x)}</span></div>`;
+}
+function sbManHTML(sec,forceRed){
+  return (SBM[sec]||[]).filter(x=>!x.cut).map(x=>sbManLine(sec,x,forceRed)).join('');
+}
 function sbF(n){ return fmt(Math.round(sbNum(n)*100)/100); }
 function sbRate(amt,qty){ if(!qty) return ''; const r=sbNum(amt)/qty; return (Math.round(r*100)%100===0)? String(Math.round(r)) : r.toFixed(2); }
 
@@ -64,7 +79,7 @@ function sbSaleHTML(db,live){
   const acT=G.ac.reduce((a,x)=>a+x.amt,0), cashT=G.cash.reduce((a,x)=>a+x.amt,0);
   const man=SBM.sale.filter(x=>!x.cut);
   const manAC=man.filter(x=>x.red), manCash=man.filter(x=>!x.red);
-  const manLine=(x,i)=>`<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="sale" data-i="${SBM.sale.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`;
+  const manLine=x=>sbManLine('sale',x);
   let h='';
   if(G.ac.length||manAC.length){
     h+=`<div class="sb-grp"><div class="sb-circle red">${sbF(acT+manAC.reduce((a,x)=>a+x.amt,0))}</div>
@@ -84,8 +99,7 @@ function sbSaleHTML(db,live){
 function sbJamaHTML(db,live){
   const rows=(db.jama||[]).filter(r=>!r.cut).map(r=>
     `<div class="sb-line ${r.online>0?'red':'blue'}"><span class="sb-amt">${sbF(r.amount)}</span><span class="sb-txt">${esc(r.name)}${r.address?` (${esc(r.address)})`:''}${r.online>0?' <b>A/C</b>':''}</span></div>`).join('');
-  const man=SBM.jama.filter(x=>!x.cut).map(x=>
-    `<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="jama" data-i="${SBM.jama.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const man=sbManHTML('jama');
   return (rows+man||`<div class="sb-empty">— खाली —</div>`) + (live?`<div class="add-strip" data-sbadd="jama">+ नयी जमा entry</div>`:'');
 }
 
@@ -102,15 +116,13 @@ function sbBikriRows(){
 }
 function sbBikriHTML(live){
   const rows=sbBikriRows();
-  const man=SBM.bikri.filter(x=>!x.cut).map(x=>
-    `<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="bikri" data-i="${SBM.bikri.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const man=sbManHTML('bikri');
   return (rows+man||`<div class="sb-empty">— Verify हुई Atta Receipt यहाँ आएगी ✔ —</div>`) + (live?`<div class="add-strip" data-sbadd="bikri">+ नयी बिक्री नाम entry</div>`:'');
 }
 
 /* दायें page वाला overflow — बिक्री नाम खाते (part 2) */
 function sbBikri2HTML(live){
-  const man=(SBM.bikri2||[]).filter(x=>!x.cut).map(x=>
-    `<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="bikri2" data-i="${SBM.bikri2.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const man=sbManHTML('bikri2');
   return (man||`<div class="sb-empty">— जगह कम पड़े तो यहाँ लिखें —</div>`) + (live?`<div class="add-strip" data-sbadd="bikri2">+ और बिक्री नाम</div>`:'');
 }
 
@@ -119,22 +131,75 @@ function sbBikri2HTML(live){
       final होने पर: Amount) नाम (पता) + नीचे  KG × रेट (Total ÷ KG)
       final न हो तो सिर्फ़ नाम / पता / रेट
 ========================================================= */
+/* Wheat print का असली logic — जो भी field खाली हो, बाक़ी से जितना निकल सके निकाल लो */
+function sbWheatCalc(r){
+  const kind=(r.kind||r.mode||'rst');
+  const isFill = kind==='fill';
+  /* बोरा — FILL में weights की गिनती, RST में pic/bags */
+  let bags = isFill
+    ? ((r.weights&&r.weights.length) || sbNum(r.pic) || sbNum(r.bags))
+    : (sbNum(r.pic) || sbNum(r.bags) || ((r.weights&&r.weights.length)||0));
+  /* Net KG — nett/net भरा हो तो वही, वरना gross-tare, वरना FILL weights का जोड़ */
+  let kg = sbNum(r.nett) || sbNum(r.net) || sbNum(r.totalWt) || sbNum(r.fillTotal);
+  if(!kg){
+    const gr=sbNum(r.gross), tr=sbNum(r.tare);
+    if(gr>0 && tr>0) kg = Math.max(0, gr-tr);
+    else if(r.weights&&r.weights.length) kg = r.weights.reduce((a,x)=>a+sbNum(x),0);
+  }
+  const rate=sbNum(r.rate);
+  /* Wheat print जैसा: 0.5kg/Qtl weight cut + ₹4/बोरा unloading + D/P/W bag cut */
+  const stdOn = (r.stdCut===undefined) ? true : !!r.stdCut;
+  const wtCutKg = (r.wtCutKg!==undefined&&r.wtCutKg!==null) ? sbNum(r.wtCutKg) : ((kg>0&&stdOn)?(kg/100)*0.5:0);
+  const wtCutRs = (r.wtCutRs!==undefined&&r.wtCutRs!==null) ? sbNum(r.wtCutRs) : wtCutKg*rate;
+  const unloadRs= (r.unloadRs!==undefined&&r.unloadRs!==null)? sbNum(r.unloadRs): ((kg>0&&stdOn)?bags*4:0);
+  const bagCut  = sbNum(r.bagCut);
+  const grossAmt= (r.grossAmt!==undefined&&r.grossAmt!==null)? sbNum(r.grossAmt) : kg*rate;
+  let finalPay  = sbNum(r.finalPay);
+  if(!finalPay && kg>0 && rate>0) finalPay = Math.max(0, grossAmt - wtCutRs - unloadRs - bagCut);
+  const dpw = `${sbF(bags)} = ${sbNum(r.d||r.dust||0)}/${sbNum(r.p||r.plastic||0)}/${sbNum(r.w||r.wet||0)}`;
+  return {isFill,bags,kg,rate,finalPay,grossAmt,dpw,
+    hasRate:rate>0, hasKg:kg>0, hasBags:bags>0,
+    miss:[!kg?'Weight':null,!rate?'Rate':null].filter(Boolean)};
+}
+/* एक माल आवत line — बोरा हमेशा दिखेगा, चाहे weight/rate छूट गया हो */
+function sbMaalLine(r){
+  const nm=(r.name||r.nameHi||'—'), ad=(r.address||r.addressHi||'');
+  const c=sbWheatCalc(r);
+  const boraChip = c.hasBags
+    ? `<span class="sb-bora">${sbF(c.bags)} बोरा</span><span class="sb-dpw">D/P/W ${esc(c.dpw)}</span>`
+    : `<span class="sb-bora pend">बोरा — ?</span>`;
+  if(c.finalPay>0 && c.hasKg){
+    const rt=c.finalPay/c.kg;
+    return `<div class="sb-line blue"><span class="sb-amt">${sbF(c.finalPay)}</span><span class="sb-txt">${esc(nm)}${ad?` (${esc(ad)})`:''}
+      <div class="sb-sub big">${sbF(c.kg)}Kg × ${rt.toFixed(2)}</div>
+      <div class="sb-sub">${boraChip}</div></span></div>`;
+  }
+  /* अधूरी entry — फिर भी बोरा + जो मिला वह दिखेगा */
+  const bits=[];
+  if(c.hasBags) bits.push(boraChip);
+  if(c.hasKg)   bits.push(`<span class="sb-bora">${sbF(c.kg)} Kg</span>`);
+  if(c.hasRate) bits.push(`<span class="sb-bora">RATE ${esc(n2(c.rate))}</span>`);
+  if(!c.hasBags && !c.hasKg && !c.hasRate) bits.push(boraChip);
+  const amtShow = (c.grossAmt>0) ? sbF(c.grossAmt) : '—';
+  return `<div class="sb-line pend"><span class="sb-amt">${amtShow}</span><span class="sb-txt">${esc(nm)}${ad?` (${esc(ad)})`:''}
+    <div class="sb-sub">${bits.join(' ')}</div>
+    <div class="sb-sub"><i>${c.miss.length?c.miss.join(' + ')+' बाक़ी ⏳':'final बाक़ी ⏳'}</i>${c.isFill?' <b>FILL</b>':''}</div></span></div>`;
+}
 function sbMaalHTML(live){
   const wh=loadArr(WRC_KEY(SB_DATE));
-  const rows=wh.map(r=>{
-    const nm=(r.name||r.nameHi||'—'), ad=(r.address||r.addressHi||'');
-    const kg=sbNum(r.net)||sbNum(r.totalWt);
-    const fin=sbNum(r.finalPay);
-    if(fin>0 && kg>0){
-      const rate=(fin/kg);
-      return `<div class="sb-line blue"><span class="sb-amt">${sbF(fin)}</span><span class="sb-txt">${esc(nm)} (${esc(ad)})
-        <div class="sb-sub big">${sbF(kg)}Kg × ${rate.toFixed(2)}</div></span></div>`;
-    }
-    return `<div class="sb-line pend"><span class="sb-amt">—</span><span class="sb-txt">${esc(nm)} (${esc(ad)})
-      <div class="sb-sub">RATE — ${r.rate?esc(n2(r.rate)):'?'} &nbsp;<i>final बाकी ⏳</i></div></span></div>`;
-  }).join('');
-  const man=SBM.maal.filter(x=>!x.cut).map(x=>
-    `<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="maal" data-i="${SBM.maal.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const doneKeys=new Set();
+  wh.forEach(r=>{ const k=((r.name||r.nameHi||'')+'|'+(r.serial??'')).toLowerCase(); doneKeys.add(k); });
+  /* Wheat Slip वाले (print हो चुके) */
+  let rows=wh.map(sbMaalLine).join('');
+  /* Notebook का माल आवत खाता — जो अभी slip में नहीं आया वह भी दिखेगा (बोरा के साथ) */
+  const db = (SB_DATE===DATE ? DB : (loadDB('sg_nb_',SB_DATE)||blankRaw()));
+  rows += (db.maal||[]).filter(r=>!r.cut).filter(r=>{
+    const k=((r.name||'')+'|'+(r.serial??'')).toLowerCase();
+    if(doneKeys.has(k)) return false;
+    /* नाम मिल जाए तो duplicate मत दिखाओ */
+    return !wh.some(w=>((w.name||w.nameHi||'').trim().toLowerCase())===((r.name||'').trim().toLowerCase()) && (r.name||'').trim()!=='');
+  }).map(sbMaalLine).join('');
+  const man=sbManHTML('maal');
   return (rows+man||`<div class="sb-empty">— Wheat Slip print होते ही यहाँ आएगा —</div>`) + (live?`<div class="add-strip" data-sbadd="maal">+ नयी माल आवत entry</div>`:'');
 }
 
@@ -144,8 +209,7 @@ function sbMaalHTML(live){
 function sbNagadHTML(db,live){
   const rows=(db.nagad||[]).filter(r=>!r.cut).map(r=>
     `<div class="sb-line ${r.mode==='online'?'red':'blue'}"><span class="sb-amt">${sbF(r.amount)}</span><span class="sb-txt">${esc(r.name)}${r.address?` (${esc(r.address)})`:''}${r.mode==='online'?' <b>A/C</b>':''}${r.mode==='home'?' <b>(Home)</b>':''}${r.item?` — ${esc(r.item)}`:''}</span></div>`).join('');
-  const man=SBM.nagad.filter(x=>!x.cut).map(x=>
-    `<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="nagad" data-i="${SBM.nagad.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const man=sbManHTML('nagad');
   return (rows+man||`<div class="sb-empty">— खाली —</div>`) + (live?`<div class="add-strip" data-sbadd="nagad">+ नयी नगद नाम entry</div>`:'');
 }
 
@@ -163,8 +227,7 @@ function sbBankHTML(db,live){
   (db.nagad||[]).filter(r=>!r.cut && r.mode==='online').forEach(r=>{
     h+=`<div class="sb-line red"><span class="sb-amt">${sbF(r.amount)}</span><span class="sb-txt">${esc(r.name)}${r.address?` (${esc(r.address)})`:''} — नगद नाम</span></div>`;
   });
-  const man=SBM.bank.filter(x=>!x.cut).map(x=>
-    `<div class="sb-line red" data-sbsec="bank" data-i="${SBM.bank.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`).join('');
+  const man=sbManHTML('bank',true);
   return (h+man||`<div class="sb-empty">— कोई A/C entry नहीं —</div>`) + (live?`<div class="add-strip" data-sbadd="bank">+ नयी बैंक/जमा entry</div>`:'');
 }
 
@@ -187,7 +250,7 @@ function sbKharchHTML(db,live){
   let h=`<div class="sb-line blue kh-top"><span class="sb-amt">${sbF(K.total)}</span><span class="sb-txt"><b>नगद खर्च</b></span></div><div class="sb-branch">`;
   if(K.mill>0) h+=`<div class="sb-line blue"><span class="sb-amt">${sbF(K.mill)}</span><span class="sb-txt">मील खर्च</span></div>`;
   K.cats.forEach((o,name)=>{ h+=`<div class="sb-line blue"><span class="sb-amt">${sbF(o.amt)}</span><span class="sb-txt">${esc(name)}${o.qty?` (${sbF(o.qty)})`:''}</span></div>`; });
-  K.man.forEach(x=>{ h+=`<div class="sb-line ${x.red?'red':'blue'}" data-sbsec="kharch" data-i="${SBM.kharch.indexOf(x)}"><span class="sb-amt">${sbF(x.amt)}</span><span class="sb-txt">${esc(x.text)}</span></div>`; });
+  K.man.forEach(x=>{ h+=sbManLine('kharch',x); });
   h+=`</div>`;
   return h + (live?`<div class="add-strip" data-sbadd="kharch">+ नयी खर्च entry</div>`:'');
 }

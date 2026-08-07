@@ -1469,7 +1469,7 @@ function renderPrintHome(){
     const box = r.cancelled
       ? `<div class="vbox cancel" title="Cancel हुआ">✖</div>`
       : (r.verified
-        ? `<div class="vbox done" title="${esc(r.vBy||'')} — ${esc(r.vts||'')}">✔<span class="vts">${esc(r.vts||'')}</span></div>`
+        ? `<div class="vbox done" data-vdone="${i}" data-vby="${esc(r.vBy||'')}" data-vts="${esc(r.vts||'')}" title="3 बार click करें — किसने लिया दिखेगा">✔<span class="vts">${esc(r.vts||'')}</span></div>`
         : `<div class="vbox" data-vbox="${i}" title="Verify करने के लिए click करें">☐</div>`);
     const cls = (r.cancelled?' ph-cut':'') + (r.rateEdited?' ph-red':'');
     return `<div class="ph-row${cls}">
@@ -1621,13 +1621,44 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('.vbox[data-vbox]'); if(!b) return;
   const i=+b.dataset.vbox; askSerialThenOptions(i);
 });
+/* ✔ verified box → 3 बार click → \"Verify किसने लिया\" नाम दिखे; screen पर कहीं touch → हट जाए */
+(function(){
+  let vTapN=0, vTapT=0, vTapEl=null;
+  function hideWhoTip(){
+    const t=document.getElementById('vwho-tip');
+    if(t){ t.classList.remove('on'); setTimeout(()=>t.remove(),180); }
+    vTapN=0; vTapEl=null;
+  }
+  function showWhoTip(box){
+    hideWhoTip();
+    const tip=document.createElement('div');
+    tip.id='vwho-tip'; tip.className='vwho-tip';
+    tip.innerHTML=`<b>Verify किसने लिया</b><span>${esc(box.dataset.vby||'—')}</span><small>🕒 ${esc(box.dataset.vts||'')}</small>`;
+    document.body.appendChild(tip);
+    const rc=box.getBoundingClientRect();
+    tip.style.top = (rc.bottom + window.scrollY + 8) + 'px';
+    tip.style.left = Math.max(8, Math.min(rc.left + window.scrollX, window.innerWidth-190)) + 'px';
+    requestAnimationFrame(()=>tip.classList.add('on'));
+  }
+  document.addEventListener('click',e=>{
+    const box=e.target.closest('.vbox.done[data-vdone]');
+    if(!box){ if(!e.target.closest('#vwho-tip')) hideWhoTip(); return; }
+    const now=Date.now();
+    if(vTapEl!==box || now-vTapT>800){ vTapN=0; vTapEl=box; }
+    vTapT=now; vTapN++;
+    if(vTapN>=3){ vTapN=0; showWhoTip(box); }
+  },true);
+  document.addEventListener('touchstart',e=>{ if(!e.target.closest('.vbox.done[data-vdone]') && !e.target.closest('#vwho-tip')) hideWhoTip(); },{passive:true});
+  window.addEventListener('scroll',hideWhoTip,{passive:true});
+})();
+
 function askSerialThenOptions(i){
   const list=arcList(), r=list[i]; if(!r) return;
   popup({
     title:'🔐 Receipt Verify — Serial No डालें',
     body:`<div class="pp-note">इस line का Receipt Serial No भरें — तभी options खुलेंगे<br>
         <small>नाम: <b>${esc(r.nameHi||r.name||'-')}</b> · तारीख़: <b>${esc(r.dateStr||r.date||'')}</b></small></div>
-      <div class="f-row"><label>Enter Receipt Serial No</label><input type="number" id="vs-no" inputmode="numeric" placeholder="जैसे ${esc(String(r.no||''))}"></div>
+      <div class="f-row"><label>Enter Receipt Serial No</label><input type="number" id="vs-no" inputmode="numeric" placeholder="Receipt का Serial No" autocomplete="off"></div>
       <div id="vs-err" style="display:none;color:#c0392b;font-weight:800;font-size:13px;margin-top:4px;"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="vs-go">आगे बढ़ें →</button></div>`,
     onOpen(bk){
@@ -1636,7 +1667,7 @@ function askSerialThenOptions(i){
       const go=()=>{
         const v=parseInt(inp.value);
         if(!v){ err('❌ Serial No भरें'); return; }
-        if(v!==parseInt(r.no)){ err('❌ गलत Serial No — इस line का Serial '+r.no+' है'); return; }
+        if(v!==parseInt(r.no)){ err('❌ गलत Serial No — दोबारा receipt देख कर भरें'); return; }
         if((r.date||'')!==DATE){ err('❌ यह receipt आज की तारीख़ का नहीं है — verify नहीं होगा'); return; }
         closePopup(); openVerifyOptions(i);
       };
