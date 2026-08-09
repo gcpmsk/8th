@@ -206,6 +206,16 @@ body{overflow-x:hidden;}
 .maal-rate{writing-mode:vertical-rl;text-orientation:mixed;border-left:2.5px solid #14213d;padding:2px 1px 2px 4px;font-weight:700;flex-shrink:0;align-self:stretch;display:flex;align-items:center;font-size:.9em;min-height:52px;}
 .maal-rate.empty{color:#b6bcc9;border-left-style:dashed;}
 .maal-serial{display:inline-block;border:1.6px solid #14213d;border-radius:6px;padding:0 6px;font-weight:800;margin-right:6px;background:#eef6ff;}
+/* गाडी नं० — NETT के just नीचे */
+.maal-entry .m-veh{color:#14213d;font-weight:700;font-size:.95em;letter-spacing:.2px;}
+/* माल आवत — category tag (Wheat / Bag / Daal / Roast items) */
+.maal-entry .m-cat{background:#fff3cd;border:1.2px solid #e0b400;border-radius:5px;padding:0 5px;font-size:.82em;font-weight:800;color:#7a5c00;font-family:'Poppins';}
+/* simple entry (Pouch / Daal / Roast) — ऊपर Total, नीचे kg × rate */
+.maal-entry.simple-entry .s-amt{font-weight:800;}
+.maal-entry.simple-entry .s-name{font-weight:800;font-size:1.06em;}
+.maal-entry.simple-entry .s-who{font-size:.92em;color:#40506b;}
+.maal-entry.simple-entry .s-calc{border-top:1.4px dashed #cbd6e2;display:inline-block;padding-top:1px;margin-top:1px;font-weight:700;color:#1f3352;}
+.maal-entry.simple-entry .s-calc small{color:#6b7280;font-size:.78em;font-family:'Poppins';}
 
 /* labour entry style (branch look) */
 .labour-entry .lab-head{display:flex;align-items:center;gap:8px;}
