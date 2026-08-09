@@ -22,7 +22,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 })();
 
 /* ---------- navigation ---------- */
-const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen'};
+const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',tally:'tally-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen'};
 let go=function(name){
   $$('.screen').forEach(s=>s.classList.remove('active'));
   $('#'+ (SCREENS[name]||SCREENS.home)).classList.add('active');
@@ -1236,6 +1236,12 @@ function showRecDates(){
     listDates('sg_arcpt_').forEach(d=>set[d]=1);
     listDates('sg_wrcpt_').forEach(d=>set[d]=1);
     recDates=Object.keys(set).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a)));
+  } else if(recMode==='sb'){
+    /* S.Book = Notebook + Atta receipt + Wheat slip + manual — किसी भी source की तारीख़ दिखे */
+    const set={};
+    ['sg_sb_','sg_nb_','sg_arcpt_','sg_wrcpt_'].forEach(pf=>listDates(pf).forEach(d=>set[d]=1));
+    set[DATE]=1;
+    recDates=Object.keys(set).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a)));
   } else if(recMode==='ob'){
     /* Order Book — आज की तारीख़ हमेशा दिखे (चाहे अभी कोई order न हो) + सभी पिछली तारीख़ें */
     const set={}; listDates('sg_ord_').forEach(d=>set[d]=1); set[DATE]=1;
@@ -1281,6 +1287,10 @@ function showRecordView(){
   }
   if(recMode==='att'){
     wrap.innerHTML=`<div class="att-wrap" style="max-height:none;">${attTableHTML(d,false)}</div>`;
+  }else if(recMode==='sb' && typeof sbookHTML==='function'){
+    /* पुराने सब data के साथ — S.Book उसी तारीख़ का पूरा auto हिसाब */
+    if(typeof sbSetDate==='function') sbSetDate(d);
+    wrap.innerHTML=`<div class="notebook sbook">${sbookHTML(d,false)}</div>`;
   }else{
     const db=loadDB(recMode==='nb'?'sg_nb_':'sg_sb_',d)||blank();
     const snap=notebookHTML(db,d,true);
@@ -1296,7 +1306,12 @@ $('#rec-print').addEventListener('click',()=>{
   if(recMode==='pr'){ printDocument(printRecordHTML(d),{landscape:false,stretch:true,grow:true}); return; }
   if(recMode==='ob'){ printDocument(orderBookPrintHTML(d,true),{landscape:false,stretch:true,grow:true}); return; }
   if(recMode==='att'){ printAttendance(d); return; }
-  const db=loadDB(recMode==='nb'?'sg_nb_':'sg_sb_',d)||blank();
+  if(recMode==='sb' && typeof sbookHTML==='function'){
+    if(typeof sbSetDate==='function') sbSetDate(d);
+    printDocument(`<div class="notebook sbook sbook-print">${sbookHTML(d,false)}</div>`,{landscape:true,stretch:true,grow:true});
+    return;
+  }
+  const db=loadDB('sg_nb_',d)||blank();
   db.totals=computeTotals(db);
   printNotebook(db,d,true);
 });

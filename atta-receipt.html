@@ -818,6 +818,16 @@
         return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; })();
     const ARC_KEY = 'sg_arcpt_' + APP_DATE;
     function loadArcpts(){ try{ return JSON.parse(localStorage.getItem(ARC_KEY))||[]; }catch(e){ return []; } }
+    /* SI No हर दिन 1 से नहीं — पिछले सब दिनों का सबसे बड़ा number + 1 (continuous) */
+    function nextSlNo(){
+        let mx=0;
+        for(let i=0;i<localStorage.length;i++){
+            const k=localStorage.key(i); if(k.indexOf('sg_arcpt_')!==0) continue;
+            let a=[]; try{ a=JSON.parse(localStorage.getItem(k))||[]; }catch(e){}
+            a.forEach(r=>{ const n=parseInt(r.no,10); if(isFinite(n)&&n>mx) mx=n; });
+        }
+        return mx+1;
+    }
     function saveArcpts(a){ try{ localStorage.setItem(ARC_KEY, JSON.stringify(a)); }catch(e){} }
     /* Order Book से आये हैं तो वापस Order Book पर */
     let ORD_LINK = null;
@@ -825,7 +835,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         setTodayDate();
-        currentSlNo = loadArcpts().length + 1;
+        currentSlNo = nextSlNo();
         document.getElementById('inp-slno').value = formatSl(currentSlNo);
         if(!applyOrderPrefill()) addNewRow();
     });
@@ -856,16 +866,53 @@
         try{ localStorage.removeItem('sg_ord_prefill'); }catch(e){}
         return true;
     }
-    /* receipt बन गया → order complete */
+    /* receipt बन गया → order में delivery दर्ज (partial भी) */
     function markOrderComplete(){
         if(!ORD_LINK) return;
         try{
             const k='sg_ord_'+ORD_LINK.ordDate;
             const l=JSON.parse(localStorage.getItem(k)||'[]');
             const o=l.find(x=>x.id===ORD_LINK.ordId);
-            if(o){ o.done=true; o.doneDate=APP_DATE;
-                o.doneTs=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-                localStorage.setItem(k,JSON.stringify(l)); }
+            if(!o) return;
+            /* Receipt की table से जो असल में दिया गया */
+            const tbody=document.getElementById('items-tbody');
+            const given=[];
+            for(let i=0;i<tbody.children.length;i++){
+                const t=document.getElementById(`part-text-input-${i}`);
+                const q=document.getElementById(`qty-${i}`);
+                const r=document.getElementById(`rate-${i}`);
+                let nm=t? t.value.trim():'';
+                if(/^chokar/i.test(nm)) nm='Chokar (30kg)';
+                const qy=parseFloat(q?q.value:0)||0;
+                if(!nm||qy<=0) continue;
+                given.push({name:nm, qty:qy, rate:(r?r.value:'')});
+            }
+            if(!given.length) return;
+            o.items = o.items || [];
+            /* order की बाक़ी qty से घटाओ — जो order में नहीं है वह extra */
+            const dItems=[];
+            given.forEach(g=>{
+                const it=o.items.find(x=>x.name===g.name);
+                if(it){
+                    const use=Math.min(parseFloat(it.qty)||0, g.qty);
+                    it.qty=(parseFloat(it.qty)||0) - use;
+                    if(it.qty<0) it.qty=0;
+                    dItems.push({name:g.name, qty:use, rate:g.rate});
+                    const ex=g.qty-use;
+                    if(ex>0) dItems.push({name:g.name, qty:ex, rate:g.rate, extra:true});
+                }else{
+                    dItems.push({name:g.name, qty:g.qty, rate:g.rate, extra:true});
+                }
+            });
+            o.items = o.items.filter(x=>(parseFloat(x.qty)||0) > 0);
+            o.deliv = o.deliv || [];
+            o.deliv.push({
+                date: APP_DATE,
+                ts: new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}),
+                rno: document.getElementById('inp-slno').value,
+                items: dItems
+            });
+            localStorage.setItem(k,JSON.stringify(l));
         }catch(e){}
     }
 
@@ -1194,7 +1241,7 @@
 
     // Trigger Screen Reset ONLY after print dialog closes
     window.addEventListener('afterprint', () => {
-        currentSlNo = loadArcpts().length + 1;
+        currentSlNo = nextSlNo();
         document.getElementById('inp-slno').value = formatSl(currentSlNo);
         resetBillForm();
     });
