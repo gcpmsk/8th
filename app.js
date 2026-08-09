@@ -68,17 +68,57 @@ let KEY = 'sg_nb_'+DATE;
 let DB = load();
 migrate(DB);
 let RECORD_EDIT = false;       // record-book back-date edit mode
-function load(){ try{ return JSON.parse(localStorage.getItem(KEY))||blank(); }catch(e){ return blank(); } }
+function load(){ let d=null; try{ d=JSON.parse(localStorage.getItem(KEY)); }catch(e){ d=null; }
+  if(!d) d=blank(); else { migrate(d); applyCarry(d,DATE); }
+  return d; }
 function blankRaw(){ return {opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null}; }
-function blank(){
-  const b=blankRaw();
-  try{ const c=JSON.parse(localStorage.getItem('sg_carry')||'null');
-    if(c && c.date!==DATE && c.amount!==null && c.amount!==undefined){ b.opening=c.amount; localStorage.removeItem('sg_carry'); }
-  }catch(e){}
-  return b;
+/* ---------- OUT HOME → अगले दिन रोकड (auto carry, self-healing) ---------- */
+function dnum(ds){ const m=/^(\d{2})-(\d{2})-(\d{4})$/.exec(ds||''); return m? (+m[3])*10000+(+m[2])*100+(+m[1]) : 0; }
+/* पिछले दिन जिसमें OUT HOME भरा गया — वहाँ जो बचा वह इस दिन का opening */
+function carryFor(date){
+  const tgt=dnum(date); if(!tgt) return null;
+  let best=null,bestN=0;
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k || k.indexOf('sg_nb_')!==0) continue;
+    const d=k.slice(6), n=dnum(d);
+    if(!n || n>=tgt) continue;
+    let db=null; try{ db=JSON.parse(localStorage.getItem(k)); }catch(e){ continue; }
+    if(!db || db.outhome===null || db.outhome===undefined) continue;
+    if(n>bestN){ bestN=n; best=db; }
+  }
+  if(!best) return null;
+  migrate(best);
+  const T=computeTotals(best);
+  return Math.round((T.grand - (best.outhome||0))*100)/100;
 }
+/* opening खाली हो तो पिछले दिन का बचा हुआ अपने आप भर दो */
+function applyCarry(db,date){
+  /* manual opening को कभी नहीं छेड़ेंगे — सिर्फ़ खाली या auto-carry वाला refresh होगा */
+  if(db.opening!==null && db.opening!==undefined && !db.openingCarry) return db;
+  const c=carryFor(date);
+  if(c!==null && c!==undefined){ db.opening=c; db.openingCarry=true; }
+  return db;
+}
+/* जिस दिन OUT HOME बदला — उसके बाद की सारी saved तारीख़ों का auto opening फिर से set */
+function syncForwardCarry(fromDate){
+  const base=dnum(fromDate); if(!base) return;
+  const keys=[];
+  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('sg_nb_')===0) keys.push(k); }
+  keys.forEach(k=>{
+    const d=k.slice(6); if(dnum(d)<=base) return;
+    let db=null; try{ db=JSON.parse(localStorage.getItem(k)); }catch(e){ return; }
+    if(!db) return;
+    if(db.opening!==null && db.opening!==undefined && !db.openingCarry) return;
+    migrate(db); applyCarry(db,d);
+    localStorage.setItem(k,JSON.stringify(db));
+  });
+  /* आज की live DB भी refresh (अगर वह आगे की तारीख़ है) */
+  if(dnum(CUR_DATE)>base && (DB.opening===null||DB.opening===undefined||DB.openingCarry)){ applyCarry(DB,CUR_DATE); save(); }
+}
+function blank(){ const b=blankRaw(); return applyCarry(b,DATE); }
 /* back-date edit context */
-function enterEditDate(d){ CUR_DATE=d; KEY='sg_nb_'+d; try{ DB=JSON.parse(localStorage.getItem(KEY))||blankRaw(); }catch(e){ DB=blankRaw(); } migrate(DB); }
+function enterEditDate(d){ CUR_DATE=d; KEY='sg_nb_'+d; try{ DB=JSON.parse(localStorage.getItem(KEY))||blankRaw(); }catch(e){ DB=blankRaw(); } migrate(DB); applyCarry(DB,d); }
 function exitEditDate(){ CUR_DATE=DATE; KEY='sg_nb_'+DATE; DB=load(); migrate(DB); }
 /* edit stamp — जब भी कोई entry edit हो: समय (+ तारीख़ अगर back-date) + highlight */
 function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : ''; }
@@ -210,12 +250,12 @@ function openRokad(editIdx=null){
 function openOpening(){
   popup({
     title:'रोकड — शुरुआती रक़म (Opening)',
-    body:`<div class="pp-note">रोकड + नगदी बिक्री के बगल में लिखने वाला Amount</div>
+    body:`<div class="pp-note">रोकड + नगदी बिक्री के बगल में लिखने वाला Amount${DB.openingCarry?' — <b>पिछले दिन OUT HOME के बाद जो बचा</b> वह अपने आप आया है 🪄':''}</div>
       <div class="f-row"><label>Amount</label><input type="number" id="op-amt" inputmode="decimal" value="${DB.opening??''}"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="op-save">✓ Save</button></div>`,
     onOpen(bk){
       bk.querySelector('#op-amt').focus();
-      bk.querySelector('#op-save').addEventListener('click',()=>{ DB.opening=parseFloat(bk.querySelector('#op-amt').value)||0; save(); closePopup(); renderAll(); });
+      bk.querySelector('#op-save').addEventListener('click',()=>{ DB.opening=parseFloat(bk.querySelector('#op-amt').value)||0; DB.openingCarry=false; save(); closePopup(); renderAll(); });
     }
   });
 }
@@ -247,16 +287,109 @@ function openJama(editIdx=null){
 }
 
 /* =========================================================
-   3) माल आवत खाते
+   3) माल आवत खाते  — Wheat / Bag / Daal / Roast
 ========================================================= */
-function openMaal(editIdx=null){
+/* ---- Bag / Daal / Roast की definitions ---- */
+const MAAL_SUBS = {
+  plastic_bag  : {label:'Plastic Bag',  cat:'bag',   icon:'🧺', opts:['20kg bag','25kg bag','50kg bag','चोकर (Chokar)'], rateUnit:'बोरा', form:'rstfill'},
+  plastic_pouch: {label:'Plastic Pouch',cat:'bag',   icon:'🛍️', opts:['5kg pouch','10kg pouch','500gm','200gm'],        rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
+  sattu_daal   : {label:'Sattu daal',   cat:'daal',  icon:'🥣', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
+  chana_daal   : {label:'Chana daal',   cat:'daal',  icon:'🫘', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
+  wheat_roast  : {label:'Wheat Roast',  cat:'roast', icon:'🌾', rateUnit:'kg',   form:'simple', qtyLabel:'Qty', qtyUnit:''},
+  jira         : {label:'Jira (जीरा)',  cat:'roast', icon:'🌿', rateUnit:'kg',   form:'simple', qtyLabel:'Qty', qtyUnit:''}
+};
+/* नयी माल आवत entry → पहले category चुनो */
+function openMaalChooser(){
+  popup({
+    title:'📥 नयी माल आवत — क्या आया?',
+    body:`<div class="print-choice">
+        <button data-mc="wheat" style="border-color:#f1c40f;"><span class="pc-ico">🌾</span>Wheat<br><small style="color:#8a94a6">RST / FILL</small></button>
+        <button data-mc="bag" style="border-color:#3498db;"><span class="pc-ico">🧺</span>Bag<br><small style="color:#8a94a6">Plastic Bag / Pouch</small></button>
+        <button data-mc="daal" style="border-color:#e67e22;"><span class="pc-ico">🥣</span>Daal<br><small style="color:#8a94a6">Sattu / Chana</small></button>
+        <button data-mc="roast" style="border-color:#9b59b6;"><span class="pc-ico">🔥</span>Roast<br><small style="color:#8a94a6">Wheat Roast / Jira</small></button>
+      </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelectorAll('[data-mc]').forEach(b=>b.addEventListener('click',()=>{
+        const c=b.dataset.mc; closePopup();
+        if(c==='wheat') openMaal(null,'plain');
+        else openMaalSubChooser(c);
+      }));
+    }
+  });
+}
+function openMaalSubChooser(cat){
+  const titles={bag:'🧺 Bag — कौन सा?',daal:'🥣 Daal — कौन सा?',roast:'🔥 Roast — कौन सा?'};
+  const keys=Object.keys(MAAL_SUBS).filter(k=>MAAL_SUBS[k].cat===cat);
+  popup({
+    title:titles[cat]||'चुनें',
+    body:`<div class="print-choice">${keys.map(k=>`<button data-ms="${k}"><span class="pc-ico">${MAAL_SUBS[k].icon}</span>${MAAL_SUBS[k].label}<br><small style="color:#8a94a6">Rate / ${MAAL_SUBS[k].rateUnit}</small></button>`).join('')}</div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" id="ms-back">← पीछे</button><button class="pp-btn cancel" onclick="closePopup()">Cancel</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#ms-back').addEventListener('click',()=>{ closePopup(); openMaalChooser(); });
+      bk.querySelectorAll('[data-ms]').forEach(b=>b.addEventListener('click',()=>{
+        const k=b.dataset.ms; closePopup();
+        if(MAAL_SUBS[k].form==='rstfill') openMaal(null,k);
+        else openMaalSimple(k,null);
+      }));
+    }
+  });
+}
+/* edit dispatch — entry के हिसाब से सही popup */
+function openMaalEntry(editIdx=null){
+  if(editIdx===null){ openMaalChooser(); return; }
+  const e=DB.maal[editIdx]||{};
+  if(e.sub && MAAL_SUBS[e.sub] && MAAL_SUBS[e.sub].form==='simple') return openMaalSimple(e.sub,editIdx);
+  openMaal(editIdx, e.sub||'plain');
+}
+/* ---------- simple form: Pouch / Daal / Roast (qty × rate) ---------- */
+function openMaalSimple(subKey,editIdx=null){
+  const S=MAAL_SUBS[subKey];
   const e = editIdx!==null? DB.maal[editIdx] : {};
+  const serial = e.serial || (DB.maal.length+1);
+  popup({
+    title:`${S.icon} ${S.label} — माल आवत`,
+    body:`<div class="pp-note">Serial No: <b>${serial}</b> &nbsp;|&nbsp; Rate <b>प्रति ${S.rateUnit}</b> — Total अपने आप 🪄</div>
+      ${S.opts?`<div class="f-row"><label>${S.label}</label><select id="ms-opt">${S.opts.map(o=>`<option ${e.opt===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
+      <div class="f-row"><label>नाम (Name)</label><input type="text" id="ms-name" value="${esc(e.name||'')}"></div>
+      <div class="f-row"><label>पता (Address)</label><input type="text" id="ms-addr" value="${esc(e.address||'')}"></div>
+      <div class="f-row"><label>${S.qtyLabel||'Qty'}</label><input type="number" id="ms-qty" inputmode="decimal" placeholder="0" value="${e.qty??''}"></div>
+      <div class="f-row"><label>Rate (प्रति ${S.rateUnit})</label><input type="number" id="ms-rate" inputmode="decimal" placeholder="बाद में" value="${e.rate??''}"></div>
+      <div class="f-row"><label>Total Amount</label><div class="ro" id="ms-total">${e.amount?fmt(e.amount):'0'}</div></div>
+      <div class="f-row"><label>गाडी नं०</label><input type="text" id="ms-veh" placeholder="(optional)" value="${esc(e.vehicle||'')}"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ms-save">✓ Save</button></div>`,
+    onOpen(bk){
+      const g=id=>bk.querySelector('#'+id);
+      const upd=()=>{ const q=parseFloat(g('ms-qty').value)||0, r=parseFloat(g('ms-rate').value)||0; g('ms-total').textContent=fmt(q*r); };
+      g('ms-qty').addEventListener('input',upd); g('ms-rate').addEventListener('input',upd);
+      g('ms-qty').focus();
+      g('ms-save').addEventListener('click',()=>{
+        const q=parseFloat(g('ms-qty').value);
+        if(!(q>0)){ toast((S.qtyLabel||'Qty')+' भरें'); return; }
+        const r=g('ms-rate').value.trim()===''?null:parseFloat(g('ms-rate').value);
+        const rec={serial,kind:'simple',cat:S.cat,sub:subKey,label:S.label,
+          opt:S.opts? g('ms-opt').value : '',
+          name:g('ms-name').value.trim(),address:g('ms-addr').value.trim(),
+          qty:q,qtyUnit:S.qtyUnit??'',rate:r,rateUnit:S.rateUnit,amount:(r||0)*q,
+          vehicle:g('ms-veh').value.trim(),
+          ts:e.ts||nowTS(),cut:e.cut||false};
+        if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.maal[editIdx]=rec; } else DB.maal.push(rec);
+        save(); closePopup(); renderAll();
+      });
+    }
+  });
+}
+function openMaal(editIdx=null, subKey='plain'){
+  const e = editIdx!==null? DB.maal[editIdx] : {};
+  if(editIdx!==null && e.sub) subKey=e.sub;
+  const S = MAAL_SUBS[subKey] || null;      // null = सादा Wheat
   const serial = e.serial || (DB.maal.length+1);
   const kind = e.kind || 'rst';
   popup({
-    title:'माल आवत खाते',
+    title: S? `${S.icon} ${S.label} — माल आवत` : 'माल आवत खाते (🌾 Wheat)',
     body:`<div class="pp-note">Serial No: <b>${serial}</b> &nbsp;|&nbsp; Weight/Rate बाद में भी भर सकते हैं ✏️</div>
       <div class="f-row"><label>Type</label><div class="pay-seg" id="ml-kind"><div class="seg ${kind==='rst'?'sel':''}" data-v="rst">⚖️ RST</div><div class="seg ${kind==='fill'?'sel':''}" data-v="fill">📦 FILL</div></div></div>
+      ${S&&S.opts?`<div class="f-row"><label>${S.label}</label><select id="ml-opt">${S.opts.map(o=>`<option ${e.opt===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
       <div class="f-row"><label>नाम (Name)</label><input type="text" id="ml-name" value="${e.name||''}"></div>
       <div class="f-row"><label>पता (Address)</label><input type="text" id="ml-addr" value="${e.address||''}"></div>
       <div class="f-row" id="ml-pic-row" style="display:${kind==='fill'?'none':'flex'};"><label>Total बोरा (Pic)</label><input type="number" id="ml-pic" inputmode="numeric" value="${e.pic??''}"></div>
@@ -270,6 +403,7 @@ function openMaal(editIdx=null){
         <div class="f-row"><label>Gross Weight</label><input type="number" id="ml-gross" inputmode="decimal" placeholder="बाद में" value="${e.gross??''}"></div>
         <div class="f-row"><label>Tare Weight</label><input type="number" id="ml-tare" inputmode="decimal" placeholder="बाद में" value="${e.tare??''}"></div>
         <div class="f-row"><label>Nett Weight</label><input type="number" id="ml-nett" inputmode="decimal" placeholder="बाद में" value="${e.nett??''}"></div>
+        <div class="f-row"><label>गाडी नं०</label><input type="text" id="ml-veh" placeholder="(NETT के नीचे दिखेगा)" value="${esc(e.vehicle||'')}"></div>
       </div>
       <div id="ml-fill-fields" style="display:${kind==='fill'?'block':'none'};">
         <div class="pp-note">बोरा weight series में लिखें — comma से (जैसे: 5,30,45,20) — बोरा count अपने आप 🪄</div>
@@ -277,7 +411,7 @@ function openMaal(editIdx=null){
         <div class="f-row"><label>Total KG</label><div class="ro" id="ml-fill-total">${e.fillTotal?fmt(e.fillTotal)+' kg':'0 kg'}</div></div>
         <div class="f-row"><label>Total बोरा (Pic)</label><div class="ro" id="ml-fill-pic">${(e.weights||[]).length||0} बोरा (auto)</div></div>
       </div>
-      <div class="f-row"><label>Rate (सौदा)</label><input type="number" id="ml-rate" inputmode="decimal" placeholder="बाद में summit" value="${e.rate??''}"></div>`,
+      <div class="f-row"><label>Rate (${S?'प्रति '+S.rateUnit:'सौदा'})</label><input type="number" id="ml-rate" inputmode="decimal" placeholder="बाद में summit" value="${e.rate??''}"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ml-save">✓ Save</button></div>`,
     onOpen(bk){
       const g=id=>bk.querySelector('#'+id);
@@ -304,8 +438,10 @@ function openMaal(editIdx=null){
         const rec={serial,kind:curKind,name,address:g('ml-addr').value.trim(),pic,
           dust:num('ml-dust')??0,plastic:num('ml-plastic')??0,wet:num('ml-wet')??0,rate:num('ml-rate'),
           ts:e.ts||nowTS(),cut:e.cut||false};
+        if(S){ rec.cat=S.cat; rec.sub=subKey; rec.label=S.label; rec.rateUnit=S.rateUnit; if(S.opts) rec.opt=g('ml-opt').value; }
         if(curKind==='rst'){
           rec.rst=g('ml-rst').value.trim(); rec.gross=num('ml-gross'); rec.tare=num('ml-tare'); rec.nett=num('ml-nett');
+          rec.vehicle=g('ml-veh')?g('ml-veh').value.trim():'';
         }else{
           const w=parseWeights(); rec.weights=w; rec.fillTotal=w.reduce((a,x)=>a+x,0);
         }
@@ -630,11 +766,24 @@ function buildMaal(db,live){
   return db.maal.map((r,i)=>{
     /* value हमेशा दिखे — भरा हो तो digit, खाली हो तो — */
     const w=(v,lbl)=>`<span class="m-cell"><span class="m-lbl">${lbl}</span>-${v===null||v===undefined||v===''?'<span style="color:#b6bcc9">—</span>':fmt(v)}</span>`;
+    /* ---- simple (Pouch / Daal / Roast): ऊपर Total Amount → नाम → नीचे kg × rate ---- */
+    if(r.kind==='simple'){
+      const amt=(r.rate||0)*(r.qty||0);
+      const u=r.qtyUnit||'';
+      return `<div class="hw-entry maal-entry simple-entry ${r.cut?'cut':''} ${r.edited?'edited':''}" data-sec="maal" data-i="${i}">
+        <div class="s-amt"><span class="amt">${fmt(amt)}</span></div>
+        <div class="s-name"><span class="maal-serial">${r.serial}</span>${esc(r.label||'')}${r.opt?` <small>(${esc(r.opt)})</small>`:''}</div>
+        ${r.name?`<div class="s-who">${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>`:''}
+        <div class="s-calc">${fmt(r.qty||0)}${u?' '+u:''} × ${r.rate===null||r.rate===undefined?'<span style="color:#b6bcc9">?</span>':fmt(r.rate)} <small>प्रति ${esc(r.rateUnit||'kg')}</small></div>
+        ${r.vehicle?`<div class="m-veh">गाडी नं०- ${esc(r.vehicle)}</div>`:''}
+        <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
+    }
     let mid='';
     if((r.kind||'rst')==='rst'){
       // line 1 : RST + GROSS   |   line 2 : TARE + NETT  (दोनों एक-एक line में)
       mid=`<div class="m-line">${r.rst?`<span class="m-cell"><span class="m-lbl">RST</span>-${esc(r.rst)}</span>`:''}${w(r.gross,'GROSS')}</div>
-           <div class="m-line">${w(r.tare,'TARE')}${w(r.nett,'NETT')}</div>`;
+           <div class="m-line">${w(r.tare,'TARE')}${w(r.nett,'NETT')}</div>
+           ${r.vehicle?`<div class="m-line m-veh">गाडी नं०- ${esc(r.vehicle)}</div>`:''}`;
     }else{
       const chips=(r.weights&&r.weights.length)? r.weights.map(x=>`<span class="fill-chip">${fmt(x)}</span>`).join('') : '<span style="color:#b6bcc9">—</span>';
       // बोरा count ऊपर वाले circle में ही दिखता है — यहाँ दोबारा नहीं
@@ -645,14 +794,14 @@ function buildMaal(db,live){
     return `<div class="hw-entry maal-entry ${r.cut?'cut':''} ${r.edited?'edited':''}" data-sec="maal" data-i="${i}">
       <div class="m-top">
         <div class="m-left">
-          <div class="m-name"><span class="maal-serial">${r.serial}</span>${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>
+          <div class="m-name"><span class="maal-serial">${r.serial}</span>${r.label?`<span class="m-cat">${esc(r.label)}${r.opt?' · '+esc(r.opt):''}</span> `:''}${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>
           ${mid}
         </div>
         <div class="maal-badge"><span class="dp">D&nbsp;P&nbsp;W</span><span class="dpw-val">${picShow} = ${r.dust||0}/${r.plastic||0}/${r.wet||0}</span></div>
-        <div class="maal-rate ${r.rate===null||r.rate===undefined?'empty':''}">RATE-${r.rate===null||r.rate===undefined?'?':fmt(r.rate)}</div>
+        <div class="maal-rate ${r.rate===null||r.rate===undefined?'empty':''}">RATE-${r.rate===null||r.rate===undefined?'?':fmt(r.rate)}${r.rateUnit?'/'+(r.rateUnit==='बोरा'?'🧺बोरा':esc(r.rateUnit)):''}</div>
       </div>
       <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
-  }).join('') + (live?`<div class="add-strip" data-add="maal">+ नयी माल आवत entry</div>`:'') + buildIOCard(db,live);
+  }).join('') + (live?`<div class="add-strip" data-add="maal">+ नयी माल आवत entry (Wheat/Bag/Daal/Roast)</div>`:'') + buildIOCard(db,live);
 }
 function buildNagad(db,live){
   const modeTag={cash:'',online:' <span class="ac-mark">A/C</span>',home:' <b>(Home)</b>',counter:' (Con-ter)'};
@@ -695,6 +844,8 @@ function buildIOCard(db,live){
 }
 
 function renderAll(){
+  /* opening खाली / auto हो तो पिछले दिन के OUT HOME बचत से refresh */
+  const _op=DB.opening; applyCarry(DB,CUR_DATE); if(DB.opening!==_op) save();
   $('#nb-date-l').textContent=CUR_DATE; $('#nb-date-r').textContent=CUR_DATE;
   $('#rokad-head-amt').textContent = DB.opening!==null? fmt(DB.opening):'';
   $('#col-rokad').innerHTML = buildRokad(DB,true);
@@ -821,7 +972,9 @@ function openOutHome(){
         const o=parseFloat(bk.querySelector('#oh-amt').value)||0;
         if(o<=0){ toast('Amount भरें'); return; }
         DB.outhome=o; save();
-        localStorage.setItem('sg_carry',JSON.stringify({date:DATE,amount:T.grand-o}));
+        localStorage.setItem('sg_carry',JSON.stringify({date:CUR_DATE,amount:T.grand-o}));
+        /* आगे की तारीख़ों का auto-carry opening तुरन्त update */
+        syncForwardCarry(CUR_DATE);
         closePopup(); renderAll();
         toast('अगले दिन रोकड में '+fmt(T.grand-o)+' अपने आप आएगा ✔');
       });
@@ -830,7 +983,7 @@ function openOutHome(){
 }
 
 /* ---------- column click / entry interactions ---------- */
-const SEC_OPEN={rokad:openRokad,jama:openJama,maal:openMaal,nagad:openNagad,kharch:openKharch};
+const SEC_OPEN={rokad:openRokad,jama:openJama,maal:openMaalEntry,nagad:openNagad,kharch:openKharch};
 const clickState={};
 function handleEntryTap(entry){
   const key=entry.dataset.sec+entry.dataset.i;
@@ -1564,8 +1717,8 @@ function wheatPreviewHTML(r){
        <td style="text-align:center;"><b>${esc(String(r.net||n2(r.totalWt)))}</b></td>`;
   const ded=[
     ['Gross Amount (Wt × Rate):', n2(r.grossAmt), true],
-    [`Less: Weight Cut (0.5kg/Qtl) [ ${n2(r.wtCutKg)} Kg ]:`, '- '+n2(r.wtCutRs), (r.wtCutRs||0)>0],
-    ['Less: Unloading Charge (₹4/Bag):', '- '+n2(r.unloadRs), (r.unloadRs||0)>0],
+    [`Less: Weight Cut (${(r.cutKg100===undefined||r.cutKg100===null||r.cutKg100===0.5)?'1/2':r.cutKg100}kg/Qtl) [ ${n2(r.wtCutKg)} Kg ]:`, '- '+n2(r.wtCutRs), (r.wtCutRs||0)>0],
+    [`Less: Unloading Charge (₹${r.unloadPerBag??4}/Bag):`, '- '+n2(r.unloadRs), (r.unloadRs||0)>0],
     ['Less: D/P/W Bag Damage Cut:', '- '+n2(r.bagCut), (r.bagCut||0)>0]
   ].filter(x=>x[2]).map(x=>`<tr><td>${esc(x[0])}</td><td class="pv-right"><b>${esc(x[1])}</b></td></tr>`).join('');
   return `<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><span class="pv-tag">ORIGINAL COPY</span></div>

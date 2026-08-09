@@ -322,12 +322,12 @@
         <!-- CALCULATION PANEL -->
         <div class="calc-panel">
             <div>
-                <div class="calc-row"><span>Weight Cut (0.5kg/Qtl):</span> <span id="scr-wt-cut">0.00 Kg</span></div>
+                <div class="calc-row"><span id="lbl-wt-cut">Weight Cut (1/2kg/Qtl):</span> <span id="scr-wt-cut">0.00 Kg</span></div>
                 <div class="calc-row"><span>Final Payable Wt:</span> <span id="scr-final-wt">0.00 Kg</span></div>
                 <div class="calc-row"><span>Gross Amount:</span> <span id="scr-gross-amt">₹ 0.00</span></div>
             </div>
             <div>
-                <div class="calc-row"><span>Unloading Cut (₹4/Bag):</span> <span id="scr-unload-cut">₹ 0.00</span></div>
+                <div class="calc-row"><span id="lbl-unload">Unloading Cut (₹4/Bag):</span> <span id="scr-unload-cut">₹ 0.00</span></div>
                 <div class="calc-row"><span>D/P/W Bag Cut:</span> <span id="scr-bag-cut">₹ 0.00</span></div>
                 <div class="calc-row final"><span>Net Payable:</span> <span id="scr-payable">₹ 0.00</span></div>
             </div>
@@ -434,11 +434,11 @@
                         <td class="val-col"><span id="p1-gross-amt"></span></td>
                     </tr>
                     <tr id="p1-row-wt-cut">
-                        <td class="lbl-col">Less: Weight Cut (0.5kg/Qtl) [ <span id="p1-wt-cut-kg"></span> Kg ]:</td>
+                        <td class="lbl-col"><span id="p1-lbl-wt-cut">Less: Weight Cut (1/2kg/Qtl) [ </span><span id="p1-wt-cut-kg"></span> Kg ]:</td>
                         <td class="val-col">- <span id="p1-wt-cut-rs"></span></td>
                     </tr>
                     <tr id="p1-row-unload">
-                        <td class="lbl-col">Less: Unloading Charge (₹4/Bag):</td>
+                        <td class="lbl-col" id="p1-lbl-unload">Less: Unloading Charge (₹4/Bag):</td>
                         <td class="val-col">- <span id="p1-unload-rs"></span></td>
                     </tr>
                     <tr id="p1-row-bag-cut">
@@ -560,11 +560,11 @@
                         <td class="val-col"><span id="p2-gross-amt"></span></td>
                     </tr>
                     <tr id="p2-row-wt-cut">
-                        <td class="lbl-col">Less: Weight Cut (0.5kg/Qtl) [ <span id="p2-wt-cut-kg"></span> Kg ]:</td>
+                        <td class="lbl-col"><span id="p2-lbl-wt-cut">Less: Weight Cut (1/2kg/Qtl) [ </span><span id="p2-wt-cut-kg"></span> Kg ]:</td>
                         <td class="val-col">- <span id="p2-wt-cut-rs"></span></td>
                     </tr>
                     <tr id="p2-row-unload">
-                        <td class="lbl-col">Less: Unloading Charge (₹4/Bag):</td>
+                        <td class="lbl-col" id="p2-lbl-unload">Less: Unloading Charge (₹4/Bag):</td>
                         <td class="val-col">- <span id="p2-unload-rs"></span></td>
                     </tr>
                     <tr id="p2-row-bag-cut">
@@ -623,6 +623,7 @@
         const q = new URLSearchParams(location.search);
         const sn = q.get('serial');
         if(sn){ document.getElementById('inp-serial').value = sn; fillFromSerial(); }
+        refreshCutBtn();
         calculateWeight();
     });
 
@@ -664,8 +665,15 @@
             if(showAlert) alert('Serial ' + sn + ' नहीं मिला');
             return;
         }
+        if(m.kind==='simple'){
+            hint.textContent = '⚠️ Serial ' + sn + ' — यह ' + (m.label||'') + ' entry है (Wheat slip सिर्फ़ Wheat RST/FILL के लिए)';
+            hint.style.color = '#b45309';
+            if(showAlert) alert('यह entry ' + (m.label||'') + ' की है — Wheat slip के लिए Wheat (RST/FILL) serial डालें');
+            return;
+        }
         hint.textContent = '✅ Serial ' + sn + ' → ' + (m.name||'') + ' — सब details भर गयीं';
         hint.style.color = '#166534';
+        if(m.vehicle) setVal('inp-vehicle', m.vehicle);
 
         setVal('inp-name', m.name||'');
         setVal('inp-name-hi', m.name||'');
@@ -758,19 +766,70 @@
         });
     }
 
-    /* ---------- 1/2kg & Unloading ---------- */
-    function toggleDeduction() {
-        isStdDeductionActive = !isStdDeductionActive;
-        const btn = document.getElementById('toggle-std-deduction');
-        if(isStdDeductionActive) {
-            btn.classList.add('active');
-            btn.innerHTML = '✅ 1/2kg &amp; Unloading ON';
-        } else {
-            btn.classList.remove('active');
-            btn.innerHTML = '❌ 1/2kg &amp; Unloading OFF';
-        }
-        calculateWeight();
+    /* ---------- 1/2kg & Unloading (manual kg set) ---------- */
+    /* CUT_KG = हर 1 क्विंटल (100kg) पर कितना kg कटेगा — default 0.5 (यानी 1/2kg)
+       UNLOAD_RS = हर बोरा पर कितना ₹ unloading कटेगा — default 4 */
+    let CUT_KG = 0.5, UNLOAD_RS = 4;
+    try{
+        const s=JSON.parse(localStorage.getItem('sg_wheat_cut')||'null');
+        if(s){ if(s.cutKg!==undefined && s.cutKg!==null) CUT_KG=+s.cutKg; if(s.unloadRs!==undefined && s.unloadRs!==null) UNLOAD_RS=+s.unloadRs; }
+    }catch(e){}
+    function saveCutCfg(){ try{ localStorage.setItem('sg_wheat_cut',JSON.stringify({cutKg:CUT_KG,unloadRs:UNLOAD_RS})); }catch(e){} }
+    function cutKgLabel(){ return (CUT_KG===0.5?'1/2':String(CUT_KG))+'kg'; }
+    function refreshCutBtn(){
+        const btn=document.getElementById('toggle-std-deduction');
+        if(!btn) return;
+        if(isStdDeductionActive){ btn.classList.add('active'); btn.innerHTML = '✅ '+cutKgLabel()+' &amp; Unloading ₹'+UNLOAD_RS+' ON'; }
+        else { btn.classList.remove('active'); btn.innerHTML = '❌ '+cutKgLabel()+' &amp; Unloading OFF'; }
+        /* screen + print labels */
+        const l1=document.getElementById('lbl-wt-cut'); if(l1) l1.textContent='Weight Cut ('+cutKgLabel()+'/Qtl):';
+        const l2=document.getElementById('lbl-unload'); if(l2) l2.textContent='Unloading Cut (₹'+UNLOAD_RS+'/Bag):';
+        ['p1','p2'].forEach(p=>{
+            const a=document.getElementById(p+'-lbl-wt-cut'); if(a) a.textContent='Less: Weight Cut ('+cutKgLabel()+'/Qtl) [ ';
+            const b=document.getElementById(p+'-lbl-unload'); if(b) b.textContent='Less: Unloading Charge (₹'+UNLOAD_RS+'/Bag):';
+        });
     }
+    /* button click = popup — kg + unloading rate manually set, फिर ON/OFF */
+    function toggleDeduction(){ openCutPopup(); }
+    function openCutPopup(){
+        closeCutPopup();
+        const bk=document.createElement('div'); bk.id='cut-pop';
+        bk.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(12,18,30,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+        bk.innerHTML=`<div style="background:#fff;border-radius:18px;max-width:420px;width:100%;box-shadow:0 24px 60px -18px rgba(0,0,0,.6);overflow:hidden;font-family:Poppins,sans-serif;">
+            <div style="background:linear-gradient(135deg,#141e30,#243b55);color:#ffd479;font-weight:800;padding:14px 18px;font-size:16px;">⚖️ कटौती सेट करें — ${cutKgLabel()} &amp; Unloading</div>
+            <div style="padding:16px 18px;">
+              <div style="background:#fffbeb;border:1.4px dashed #f59e0b;color:#92400e;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:600;margin-bottom:14px;">
+                हर 1 क्विंटल (100kg) पर जितना kg काटना है वह भरें — और हर बोरा पर unloading ₹ भरें
+              </div>
+              <label style="display:block;font-weight:800;font-size:13px;color:#334155;margin-bottom:5px;">कटौती (kg / क्विंटल) — जैसे 0.5 = 1/2kg</label>
+              <input id="cut-kg" type="number" step="0.01" inputmode="decimal" value="${CUT_KG}"
+                style="width:100%;padding:11px 12px;border:2px solid #cbd5e1;border-radius:10px;font-weight:800;font-size:17px;text-align:center;margin-bottom:8px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+                ${[0.25,0.5,1,1.5,2].map(v=>`<button type="button" class="cut-q" data-v="${v}" style="flex:1;min-width:60px;padding:7px 4px;border:2px solid #e2e8f0;background:#f8fafc;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;color:#334155;">${v===0.5?'1/2':v}kg</button>`).join('')}
+              </div>
+              <label style="display:block;font-weight:800;font-size:13px;color:#334155;margin-bottom:5px;">Unloading (₹ / बोरा)</label>
+              <input id="cut-unload" type="number" step="0.5" inputmode="decimal" value="${UNLOAD_RS}"
+                style="width:100%;padding:11px 12px;border:2px solid #cbd5e1;border-radius:10px;font-weight:800;font-size:17px;text-align:center;">
+            </div>
+            <div style="display:flex;gap:8px;padding:0 18px 18px;flex-wrap:wrap;">
+              <button type="button" id="cut-cancel" style="flex:1;min-width:90px;padding:12px;border:0;border-radius:10px;background:#e2e8f0;color:#475569;font-weight:800;cursor:pointer;">Cancel</button>
+              <button type="button" id="cut-off" style="flex:1;min-width:90px;padding:12px;border:0;border-radius:10px;background:#64748b;color:#fff;font-weight:800;cursor:pointer;">❌ OFF</button>
+              <button type="button" id="cut-on" style="flex:1.3;min-width:110px;padding:12px;border:0;border-radius:10px;background:#16a34a;color:#fff;font-weight:800;cursor:pointer;">✅ ON करें</button>
+            </div>
+          </div>`;
+        document.body.appendChild(bk);
+        bk.addEventListener('click',e=>{ if(e.target===bk) closeCutPopup(); });
+        bk.querySelectorAll('.cut-q').forEach(b=>b.addEventListener('click',()=>{ bk.querySelector('#cut-kg').value=b.dataset.v; }));
+        const readVals=()=>{
+            const k=parseFloat(bk.querySelector('#cut-kg').value); CUT_KG = isNaN(k)?0:k;
+            const u=parseFloat(bk.querySelector('#cut-unload').value); UNLOAD_RS = isNaN(u)?0:u;
+            saveCutCfg();
+        };
+        bk.querySelector('#cut-cancel').addEventListener('click',closeCutPopup);
+        bk.querySelector('#cut-off').addEventListener('click',()=>{ readVals(); isStdDeductionActive=false; closeCutPopup(); refreshCutBtn(); calculateWeight(); });
+        bk.querySelector('#cut-on').addEventListener('click',()=>{ readVals(); isStdDeductionActive=true; closeCutPopup(); refreshCutBtn(); calculateWeight(); });
+    }
+    function closeCutPopup(){ const p=document.getElementById('cut-pop'); if(p) p.remove(); }
 
     /* ---------- CALCULATION (दोनों mode) ---------- */
     function currentRate(){ return MODE==='fill' ? getVal('inp-rate-fill') : getVal('inp-rate'); }
@@ -787,8 +846,8 @@
         const netWt = (net===null) ? 0 : net;
         const rate = currentRate();
         const bags = getVal('inp-bags');
-        const weightCutKg = (netWt>0 && isStdDeductionActive) ? (netWt/100)*0.5 : 0;
-        const unloadRs     = (netWt>0 && isStdDeductionActive) ? bags*4 : 0;
+        const weightCutKg = (netWt>0 && isStdDeductionActive) ? (netWt/100)*CUT_KG : 0;
+        const unloadRs     = (netWt>0 && isStdDeductionActive) ? bags*UNLOAD_RS : 0;
         const wtCutRs      = weightCutKg * rate;
         const finalWt      = Math.max(0, netWt - weightCutKg);
         const grossAmt     = netWt * rate;
@@ -910,6 +969,8 @@
             totalWt: c.netWt,
             rate: c.rate,
             stdCut: isStdDeductionActive,
+            cutKg100: CUT_KG,
+            unloadPerBag: UNLOAD_RS,
             grossAmt: c.grossAmt,
             wtCutKg: c.weightCutKg,
             wtCutRs: c.wtCutRs,
@@ -943,7 +1004,7 @@
         const hint=document.getElementById('serial-hint');
         hint.textContent='Notebook (माल आवत खाते) का Serial डालें — नाम, पता, बोरा, वजन, रेट अपने आप भर जाएगा';
         hint.style.color='#92400e';
-        if(isStdDeductionActive) toggleDeduction();
+        isStdDeductionActive = false; refreshCutBtn();
         lockAutoFields(false);
         calculateWeight();
     }
