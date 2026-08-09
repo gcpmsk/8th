@@ -604,11 +604,22 @@
 
     function goBackApp(){ location.href = 'index.html#print'; }
     function loadWrcpts(){ try{ return JSON.parse(localStorage.getItem(WRC_KEY))||[]; }catch(e){ return []; } }
+    /* SI No continuous — सभी तारीख़ों का सबसे बड़ा + 1 */
+    function nextWSlNo(){
+        let mx=0;
+        for(let i=0;i<localStorage.length;i++){
+            const k=localStorage.key(i); if(k.indexOf('sg_wrcpt_')!==0) continue;
+            let a=[]; try{ a=JSON.parse(localStorage.getItem(k))||[]; }catch(e){}
+            a.forEach(r=>{ const n=parseInt(r.no,10); if(isFinite(n)&&n>mx) mx=n; });
+        }
+        return mx+1;
+    }
     function saveWrcpts(a){ try{ localStorage.setItem(WRC_KEY, JSON.stringify(a)); }catch(e){} }
     function loadNB(){ try{ return JSON.parse(localStorage.getItem(NB_KEY))||null; }catch(e){ return null; } }
 
     document.addEventListener('DOMContentLoaded', () => {
         setTodayDate();
+        setVal('inp-slno', String(nextWSlNo()).padStart(2,'0'));   // continuous SI No
         const q = new URLSearchParams(location.search);
         const sn = q.get('serial');
         if(sn){ document.getElementById('inp-serial').value = sn; fillFromSerial(); }
@@ -656,7 +667,6 @@
         hint.textContent = '✅ Serial ' + sn + ' → ' + (m.name||'') + ' — सब details भर गयीं';
         hint.style.color = '#166534';
 
-        setVal('inp-slno', String(sn).padStart(2,'0'));
         setVal('inp-name', m.name||'');
         setVal('inp-name-hi', m.name||'');
         setVal('inp-address', m.address||'');
@@ -919,6 +929,7 @@
         syncPrintData();
         saveSlipToApp();
         setTimeout(() => { window.print(); }, 300);
+        setTimeout(() => { setVal('inp-slno', String(nextWSlNo()).padStart(2,'0')); }, 1200);
     }
 
     function forceNewBill() {

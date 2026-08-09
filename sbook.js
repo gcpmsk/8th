@@ -300,6 +300,10 @@ function sbookHTML(date,live){
   </div>`;
 }
 
+/* Record Book से किसी भी तारीख़ का S.Book — SBM उस तारीख़ का manual data */
+function sbSetDate(d){ SB_DATE=d; SBM=sbLoad(d); }
+window.sbSetDate=sbSetDate;
+
 function renderSBook(){
   SB_DATE = (CUR_DATE||DATE);
   SBM = sbLoad(SB_DATE);

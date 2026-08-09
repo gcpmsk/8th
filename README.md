@@ -200,3 +200,29 @@ Atta Receipt print होते ही order अपने आप **Serial No क
 ### Record Book
 Record Book → **🧾 Order Book** → तारीख़ list.
 किसी भी तारीख़ पर आज का + उससे पुराने बचे हुए order — दोनों दिखेंगे, print भी.
+
+## 🧾 ORDER BOOK v2 + 📊 TALLY VIEW (नया अपडेट)
+
+### Order Book — नया साफ़ interface
+- **Card design** — `Σ TOTAL` card (सभी pending order का particulars + qty), `📍 AREA WISE TOTAL` (15 इलाक़े — KKG/MNS/MSK/GJP/GG/KAM/CTM/SNB/SHR/PBT/BLD/ALI/BKR/BGS/JMP), और दो column: `📋 ORDER — बाक़ी` + `✅ TODAY COMPLEAT`
+- **पूरा नाम** — `ATTA ग` जैसा शॉर्ट नाम हटा दिया गया, अब **Atta Gold** पूरा लिखा आता है
+- **New Order form** — नाम English में टाइप करो → **अपने आप हिंदी**; **Address भी** English → हिंदी; Area chips
+- **Particulars dropdown** — Atta Receipt print जैसा **Category → Variety** picker (Atta / Sattu / Besan / Chokar / Jut Bora)
+- **Rate बाद में** — rate खाली छोड़ सकते हैं। Order box पर click → rate माँगेगा → भरने के बाद फिर click → Atta Receipt खुलेगा जिसमें **नाम, पता, particulars, qty, rate अपने आप भरे** मिलेंगे
+- **Extra item** — receipt में जो नया item जोड़ोगे वो भी **Today Complete** में दिखेगा
+- **Today Complete = सिर्फ़ आज की तारीख़** की delivery
+- **Partial delivery (बचा हुआ)** — order 20 qty, दिया 15 → Today Complete में **15**, बाक़ी **5 pending** रहेगा और अगले दिन side में **`बचा हुआ`** लिखा दिखेगा
+- Back-date order **लाल** में, serial no पहले, समय + तारीख़ के साथ
+- 🖨️ Print — A4 fit (TOTAL + area + बाक़ी order + Today Compleat)
+
+### 📊 Tally View (नया बटन — Home पर आख़िरी tile)
+- 4 KPI: कुल Order / Delivery / बाक़ी Order / Delivered ₹
+- **📦 ITEM WISE** — Particulars | Order | दिया | बाक़ी
+- **📍 AREA WISE** — Area | Order | दिया | बाक़ी | Value ₹
+- **👤 CUSTOMER WISE** — Name | Area | Order | दिया | बाक़ी | Value ₹
+- 🖨️ Print सपोर्ट
+
+### और सुधार
+- **SI No continue** — Atta Receipt व Wheat Slip का SI No अगले दिन फिर 1 से शुरू नहीं होगा; सभी तारीख़ों में सबसे बड़ा नंबर देखकर +1 होता है
+- **Record Book → S.Book** — अब पुराना सारा डेटा दिखता है (`sg_sb_` + `sg_nb_` + `sg_arcpt_` + `sg_wrcpt_` सभी तारीख़ें merge)
+- **Record Book → Order Book** — पिछली + आज की तारीख़ का Order Book देखें व print करें
