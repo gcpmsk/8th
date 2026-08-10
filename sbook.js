@@ -161,8 +161,22 @@ function sbWheatCalc(r){
     hasRate:rate>0, hasKg:kg>0, hasBags:bags>0,
     miss:[!kg?'Weight':null,!rate?'Rate':null].filter(Boolean)};
 }
+/* Bag / Daal / Roast (simple) — notebook जैसा ही: Serial ऊपर, Amount नाम से पहले,
+   नीचे  qty × rate ; नाम/पता खाली हो तब भी line दिखेगी */
+function sbSimpleLine(r){
+  const qty=sbNum(r.qty), rate=(r.rate===null||r.rate===undefined)?null:sbNum(r.rate);
+  const amt=(rate||0)*qty;
+  const un=r.qtyUnit||r.rateUnit||'kg';
+  const who=(r.name||'').trim();
+  const ad=(r.address||'').trim();
+  return `<div class="sb-line ${amt>0?'blue':'pend'}"><span class="sb-amt">${amt>0?sbF(amt):'—'}</span><span class="sb-txt">
+    <b>${sbF(r.serial||'')}${'\u0029'}</b> ${esc(r.label||'')}${r.opt?` (${esc(r.opt)})`:''}${who?` — ${esc(who)}`:''}${ad?` (${esc(ad)})`:''}
+    <div class="sb-sub big">${sbF(qty)}${esc(un)} × ${rate===null?'?':sbF(rate)}rs</div>
+    ${r.vehicle?`<div class="sb-sub">गाडी नं०- ${esc(r.vehicle)}</div>`:''}</span></div>`;
+}
 /* एक माल आवत line — बोरा हमेशा दिखेगा, चाहे weight/rate छूट गया हो */
 function sbMaalLine(r){
+  if(r.kind==='simple') return sbSimpleLine(r);
   const nm=(r.name||r.nameHi||'—'), ad=(r.address||r.addressHi||'');
   const c=sbWheatCalc(r);
   const boraChip = c.hasBags
@@ -194,6 +208,7 @@ function sbMaalHTML(live){
   /* Notebook का माल आवत खाता — जो अभी slip में नहीं आया वह भी दिखेगा (बोरा के साथ) */
   const db = (SB_DATE===DATE ? DB : (loadDB('sg_nb_',SB_DATE)||blankRaw()));
   rows += (db.maal||[]).filter(r=>!r.cut).filter(r=>{
+    if(r.kind==='simple') return true;   /* Bag/Daal/Roast — नाम-पता खाली हो तब भी हमेशा दिखे */
     const k=((r.name||'')+'|'+(r.serial??'')).toLowerCase();
     if(doneKeys.has(k)) return false;
     /* नाम मिल जाए तो duplicate मत दिखाओ */

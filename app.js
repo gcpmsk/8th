@@ -124,7 +124,13 @@ function exitEditDate(){ CUR_DATE=DATE; KEY='sg_nb_'+DATE; DB=load(); migrate(DB
 function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : ''; }
 function editTag(r){ return r.edited? `<span class="ets">✎ ${r.ets}${r.edate?(' · '+r.edate):''}</span>`:''; }
 function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null; }
-function save(){ localStorage.setItem(KEY,JSON.stringify(DB)); }
+function save(){ localStorage.setItem(KEY,JSON.stringify(DB)); try{ if(window.tvRefresh) tvRefresh(); }catch(e){} }
+/* Tally की गाड़ी list — tally.js से (न मिले तो fallback) */
+function VEH_LIST(){ return window.TV_VEHICLES || [
+  {no:'BR34GA8293',kind:'pickup',label:'Pickup',icon:'🛻'},
+  {no:'BR34GA8447',kind:'cngvan',label:'CNG Van',icon:'🚐'},
+  {no:'BR34U9778', kind:'bike',  label:'Bike',   icon:'🏍️'},
+  {no:'WA24AE4843',kind:'car',   label:'Car (Diesel)',icon:'🚗'} ]; }
 
 const DEFAULT_RATES = { atta:1.25, bag_5_10:1, wheat_unloading:1, wheat_weight_unloading:1.5, chokar_loding:1, chokar_fill:1, wheat_fill:1, wheat_holar:1, e_rikshaw:4 };
 function getRates(){ try{ return Object.assign({},DEFAULT_RATES,JSON.parse(localStorage.getItem('sg_rates')||'{}')); }catch(e){ return {...DEFAULT_RATES}; } }
@@ -291,7 +297,7 @@ function openJama(editIdx=null){
 ========================================================= */
 /* ---- Bag / Daal / Roast की definitions ---- */
 const MAAL_SUBS = {
-  plastic_bag  : {label:'Plastic Bag',  cat:'bag',   icon:'🧺', opts:['20kg bag','25kg bag','50kg bag','चोकर (Chokar)'], rateUnit:'बोरा', form:'rstfill'},
+  plastic_bag  : {label:'Plastic Bag',  cat:'bag',   icon:'🧺', opts:['20kg bag','25kg bag','50kg bag','चोकर (Chokar)'], rateUnit:'बोरा', form:'simple', qtyLabel:'Qty (बोरा)', qtyUnit:'बोरा'},
   plastic_pouch: {label:'Plastic Pouch',cat:'bag',   icon:'🛍️', opts:['5kg pouch','10kg pouch','500gm','200gm'],        rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   sattu_daal   : {label:'Sattu daal',   cat:'daal',  icon:'🥣', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   chana_daal   : {label:'Chana daal',   cat:'daal',  icon:'🫘', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
@@ -461,7 +467,8 @@ function openNagad(editIdx=null){
     title:'नगद नाम खाते',
     body:`<div class="pp-note">माल आवत का Serial No डालें → नाम-पता अपने आप 🪄</div>
       <div class="f-row"><label>Serial No</label><input type="number" id="ng-serial" inputmode="numeric" placeholder="(optional)" value="${e.serialRef??''}"></div>
-      <div class="f-row"><label>नाम</label><input type="text" id="ng-name" value="${e.name||''}"></div>
+      <div class="f-row"><label>नाम</label><input type="text" id="ng-name" list="ng-staff-list" value="${e.name||''}"></div>
+      <datalist id="ng-staff-list">${(attStaffGlobal()||[]).map(n=>`<option value="${esc(n)}"></option>`).join('')}</datalist>
       <div class="f-row"><label>पता</label><input type="text" id="ng-addr" value="${e.address||''}"></div>
       <div class="f-row"><label>Amount</label><input type="number" id="ng-amt" inputmode="decimal" value="${e.amount??''}"></div>
       ${segRow('कहाँ से दिया',[{v:'cash',t:'💵 Mill'},{v:'online',t:'🏦 A/C'},{v:'home',t:'🏠 Home'}], e.mode||'cash')}
@@ -522,19 +529,27 @@ function openKharch(editIdx=null){
         <div class="f-row"><label>Amount ₹</label><input type="number" id="kh-e-amt" inputmode="decimal" placeholder="रेट/अमाउंट भरें"></div>
       </div>
       <div id="kh-van" style="display:none;">
-        <div class="f-row"><label>वेन Option</label><select id="kh-van-type"><option value="gadi">🚐 गाड़ी खर्च</option><option value="petrol">⛽ Petrol</option></select></div>
+        <div class="f-row"><label>वेन Option</label><select id="kh-van-type"><option value="gadi">🚐 गाड़ी खर्च</option><option value="petrol">⛽ Fuel</option></select></div>
         <div id="kh-van-petrol" style="display:none;">
           ${segRow('गाड़ी',[{v:'van',t:'🚐 Van'},{v:'bike',t:'🏍️ Bike'}],'van')}
           <div id="kh-van-details">
-            <div class="f-row"><label>Van No</label><input type="text" id="kh-van-no" placeholder="जैसे 227"></div>
+            <div class="f-row"><label>Van No</label><select id="kh-van-no">${VEH_LIST().filter(v=>v.kind!=='bike').map(v=>`<option value="${v.no}">${v.icon} ${v.no} — ${v.label}</option>`).join('')}</select></div>
             <div class="f-row"><label>Driver नाम</label><input type="text" id="kh-driver"></div>
+          </div>
+          <div id="kh-bike-details" style="display:none;">
+            <div class="f-row"><label>Bike No</label><div class="ro" id="kh-bike-no">${VEH_LIST().find(v=>v.kind==='bike')?.no||''}</div></div>
           </div>
         </div>
         <div class="f-row"><label>अमाउंट</label><input type="number" id="kh-van-amt" inputmode="decimal"></div>
+      </div>
+      <div id="kh-gadi" style="display:none;">
+        <div class="f-row"><label>गाड़ी चुनें</label><select id="kh-gadi-no"><option value="">— कोई नहीं —</option>${VEH_LIST().map(v=>`<option value="${v.no}">${v.icon} ${v.no} — ${v.label}</option>`).join('')}</select></div>
       </div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="kh-save">✓ Save</button></div>`,
     onOpen(bk){
-      wireSeg(bk,()=>{ const isVan = bk.querySelector('.pay-seg .seg.sel')?.dataset.v==='van'; bk.querySelector('#kh-van-details').style.display = isVan?'block':'none'; });
+      wireSeg(bk,()=>{ const isVan = bk.querySelector('.pay-seg .seg.sel')?.dataset.v==='van';
+        bk.querySelector('#kh-van-details').style.display = isVan?'block':'none';
+        bk.querySelector('#kh-bike-details').style.display = isVan?'none':'block'; });
       const typeSel=bk.querySelector('#kh-type');
       typeSel.addEventListener('change',()=>{
         const v=typeSel.value;
@@ -563,14 +578,17 @@ function openKharch(editIdx=null){
           toast('Receipt '+rn+' → '+r2.name); }
       });
       bk.querySelector('#kh-van-type').addEventListener('change',()=>{
-        bk.querySelector('#kh-van-petrol').style.display = bk.querySelector('#kh-van-type').value==='petrol'?'block':'none';
+        const isP = bk.querySelector('#kh-van-type').value==='petrol';
+        bk.querySelector('#kh-van-petrol').style.display = isP?'block':'none';
+        bk.querySelector('#kh-gadi').style.display = isP?'none':'block';
       });
+      bk.querySelector('#kh-gadi').style.display = bk.querySelector('#kh-van-type').value==='gadi'?'block':'none';
       bk.querySelector('#kh-save').addEventListener('click',()=>{
         const v=typeSel.value; let rec=null;
         if(v==='mill'){
           const name=bk.querySelector('#kh-name').value.trim(), amt=parseFloat(bk.querySelector('#kh-amt').value)||0;
           if(!name||amt<=0){ toast('नाम और अमाउंट भरें'); return; }
-          rec={type:'mill',name,amount:amt};
+          rec={type:'mill',name,amount:amt,mk:'product'};
         }else if(v==='pending'){
           const name=bk.querySelector('#kh-p-name').value.trim(), amt=parseFloat(bk.querySelector('#kh-p-amt').value)||0;
           if(!name||amt<=0){ toast('नाम और अमाउंट भरें'); return; }
@@ -586,13 +604,18 @@ function openKharch(editIdx=null){
           const amt=parseFloat(bk.querySelector('#kh-van-amt').value)||0;
           if(amt<=0){ toast('अमाउंट भरें'); return; }
           const vt=bk.querySelector('#kh-van-type').value;
-          if(vt==='gadi'){ rec={type:'van',name:'गाड़ी खर्च',amount:amt}; }
+          if(vt==='gadi'){
+            const gno=bk.querySelector('#kh-gadi-no').value;
+            rec={type:'van',name:'गाड़ी खर्च'+(gno?' '+gno:''),amount:amt,mk:'gadi',mkSub:'maint',vehNo:gno||''};
+          }
           else{
             const veh=segVal(bk)||'van';
-            if(veh==='bike'){ rec={type:'van',name:'Bike (Petrol)',amount:amt}; }
-            else{
+            if(veh==='bike'){
+              const bno=(VEH_LIST().find(v=>v.kind==='bike')||{}).no||'';
+              rec={type:'van',name:`Bike ${bno} (Fuel)`,amount:amt,mk:'gadi',mkSub:'fuel',vehNo:bno};
+            }else{
               const no=bk.querySelector('#kh-van-no').value.trim(), dr=bk.querySelector('#kh-driver').value.trim();
-              rec={type:'van',name:`Van${no||''} (Petrol)${dr?' '+dr:''}`,amount:amt};
+              rec={type:'van',name:`${no} (Fuel)${dr?' '+dr:''}`,amount:amt,mk:'gadi',mkSub:'fuel',vehNo:no,driver:dr};
             }
           }
         }
@@ -770,11 +793,13 @@ function buildMaal(db,live){
     if(r.kind==='simple'){
       const amt=(r.rate||0)*(r.qty||0);
       const u=r.qtyUnit||'';
+      /* ऊपर Serial No, और नाम/label से पहले Amount (box में) */
+      const un = u || r.rateUnit || 'kg';
       return `<div class="hw-entry maal-entry simple-entry ${r.cut?'cut':''} ${r.edited?'edited':''}" data-sec="maal" data-i="${i}">
-        <div class="s-amt"><span class="amt">${fmt(amt)}</span></div>
-        <div class="s-name"><span class="maal-serial">${r.serial}</span>${esc(r.label||'')}${r.opt?` <small>(${esc(r.opt)})</small>`:''}</div>
+        <div class="s-amt"><span class="maal-serial">${r.serial}</span></div>
+        <div class="s-name"><span class="amt">${fmt(amt)}</span>${esc(r.label||'')}${r.opt?` <small>(${esc(r.opt)})</small>`:''}</div>
         ${r.name?`<div class="s-who">${esc(r.name)}${r.address?` (${esc(r.address)})`:''}</div>`:''}
-        <div class="s-calc">${fmt(r.qty||0)}${u?' '+u:''} × ${r.rate===null||r.rate===undefined?'<span style="color:#b6bcc9">?</span>':fmt(r.rate)} <small>प्रति ${esc(r.rateUnit||'kg')}</small></div>
+        <div class="s-calc">${fmt(r.qty||0)}${esc(un)} × ${r.rate===null||r.rate===undefined?'<span style="color:#b6bcc9">?</span>':fmt(r.rate)}rs</div>
         ${r.vehicle?`<div class="m-veh">गाडी नं०- ${esc(r.vehicle)}</div>`:''}
         <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
     }
@@ -1126,7 +1151,8 @@ function printOverrideCSS(landscape,overlay){
   #pw .nb-col-title{font-size:13px!important;}
   #pw .nb-col-title .head-amt{font-size:12.5px!important;}
   #pw .hw-entry{font-size:11.5px!important;}
-  #pw .maal-entry{font-size:10.5px!important;}
+  #pw .maal-entry{font-size:11px!important;}
+  #pw .sbook .sb-sub.big{font-size:1em!important;}
   #pw .total-block{font-size:11.5px!important;}
   #pw .kharch-divider{font-size:12.5px!important;}
   #pw .nb-col{min-height:40px!important;padding-bottom:6px!important;}
@@ -1180,21 +1206,33 @@ function sgFitDoc(doc,landscape,stretch,grow){
     const availW=((landscape?297:210)-2*M)*pxmm;
     const availH=((landscape?210:297)-2*M)*pxmm;
     pw.style.transform='none';
+    pw.style.minHeight='0px';
     pw.style.width = stretch ? (availW+'px') : 'max-content';
-    let w=Math.max(pw.scrollWidth, Math.ceil(pw.getBoundingClientRect().width), 1);
-    let h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
-    /* grow mode — entry कम हो तो content बड़ा होकर पूरा A4 page भरेगा;
-       ज्यादा हो तो छोटा होकर हमेशा single page में ही fit रहेगा */
+    const mh=()=>Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
+    const mw=()=>Math.max(pw.scrollWidth,  Math.ceil(pw.getBoundingClientRect().width),  1);
+    let w=mw(), h=mh();
     let sc=Math.min(availW/w, availH/h);
-    if(!grow) sc=Math.min(1,sc);
-    if(grow){
-      /* पहले height को page के हिसाब से बढ़ाओ — खाली जगह न रहे */
-      if(h*sc < availH*0.985){
-        pw.style.minHeight = Math.floor(availH/sc)+'px';
-        h=Math.max(pw.scrollHeight, Math.ceil(pw.getBoundingClientRect().height), 1);
-        sc=Math.min(availW/w, availH/h);
+    if(!grow){ sc=Math.min(1,sc); }
+    else{
+      /* grow mode — entry कम हों तो content ZOOM होकर पूरा A4 page भरेगा
+         (layout width छोटी रखो और scale बड़ा करो → PDF में सब बड़ा दिखेगा),
+         entry ज्यादा हों तो सिकुड़ कर हमेशा एक ही page में fit रहेगा */
+      const MAXK=2.6;
+      let k=Math.max(0.2, Math.min(MAXK, availH/h));
+      for(let it=0; it<7; it++){
+        pw.style.width=(availW/k)+'px';
+        const hh=mh();
+        let nk=Math.max(0.2, Math.min(MAXK, availH/hh));
+        if(Math.abs(nk-k) <= 0.01){ k=nk; break; }
+        k = k + (nk-k)*0.7;      /* damped — oscillation न हो */
       }
-      sc=Math.max(0.2, Math.min(sc, 3));
+      pw.style.width=(availW/k)+'px';
+      const hFin=mh();
+      k=Math.max(0.2, Math.min(k, availH/hFin, MAXK));
+      /* बची हुई खाली जगह भर दो, ताकि page आधा-खाली न दिखे */
+      if(hFin*k < availH*0.99) pw.style.minHeight=Math.floor(availH/k)+'px';
+      sc=k;
+      h=mh();
     }
     pw.style.transformOrigin='top left';
     pw.style.transform='scale('+sc+')';
@@ -1547,8 +1585,9 @@ $('#att-add-name').addEventListener('click',()=>{
     onOpen(bk){
       bk.querySelector('#st-name').focus();
       bk.querySelector('#st-save').addEventListener('click',()=>{
-        const n=bk.querySelector('#st-name').value.trim();
+        let n=bk.querySelector('#st-name').value.trim();
         if(!n){ toast('\u0928\u093e\u092e \u092d\u0930\u0947\u0902'); return; }
+        if(!/\(mill staff\)/i.test(n)) n = n + ' (mill staff)';   /* Tally \u0915\u0947 Staff(Cr) \u092e\u0947\u0902 \u0906\u0938\u093e\u0928\u0940 \u0938\u0947 \u092a\u0939\u091a\u093e\u0928 */
         const g=attStaffGlobal(); if(!g.includes(n)) g.push(n); setStaffGlobal(g);
         if(!ATT.staff.includes(n)) ATT.staff.push(n);
         saveAtt(MONTH_KEY(),ATT); closePopup(); renderAttendance(); toast(n+' add \u0939\u0941\u0906 \u2714');

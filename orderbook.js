@@ -5,7 +5,6 @@
    • Rate बाद में भी — click पर पहले Rate माँगेगा
    • Partial delivery — 20 का order, 15 दिया → COMPLEAT में 15, बाक़ी 5 "बचा हुआ"
    • TODAY COMPLEAT = सिर्फ़ आज की delivery (Receipt में जोड़ा extra item भी)
-   • 📊 Tally View — item / area / customer wise पूरा हिसाब
 ================================================================ */
 'use strict';
 
@@ -422,56 +421,6 @@ document.addEventListener('click',e=>{
 });
 
 /* =========================================================
-   📊 TALLY VIEW
-========================================================= */
-function tallyHTML(){
-  const all=ordAll();
-  const pend=ordPending();
-  const delivs=ordDelivs();
-  const im={};
-  const I=(k)=>{ im[k]=im[k]||{ord:0,del:0,bal:0}; return im[k]; };
-  all.forEach(o=>(o.ordered||o.items||[]).forEach(it=>{ I(it.name).ord+=oq(it.qty); }));
-  delivs.forEach(dv=>(dv.items||[]).forEach(it=>{ I(it.name).del+=oq(it.qty); }));
-  pend.forEach(o=>ordRemain(o).forEach(it=>{ I(it.name).bal+=oq(it.qty); }));
-  const iKeys=Object.keys(im).sort((a,b)=>itemOrder(a)-itemOrder(b));
-
-  const am={};
-  const A=(k)=>{ am[k]=am[k]||{ord:0,del:0,bal:0,rs:0}; return am[k]; };
-  all.forEach(o=>{ const c=areaOf(o.address); (o.ordered||o.items||[]).forEach(it=>A(c.code+' · '+c.name).ord+=oq(it.qty)); });
-  delivs.forEach(dv=>{ const c=areaOf(dv.order.address);
-    (dv.items||[]).forEach(it=>{ const x=A(c.code+' · '+c.name); x.del+=oq(it.qty); x.rs+=oq(it.qty)*oq(it.rate); }); });
-  pend.forEach(o=>{ const c=areaOf(o.address); ordRemain(o).forEach(it=>A(c.code+' · '+c.name).bal+=oq(it.qty)); });
-
-  const cm={};
-  all.forEach(o=>{ const k=(o.name||'').toUpperCase();
-    cm[k]=cm[k]||{name:o.name,hi:o.nameHi,area:areaOf(o.address).code,ord:0,del:0,bal:0,rs:0};
-    (o.ordered||o.items||[]).forEach(it=>cm[k].ord+=oq(it.qty));
-    (o.deliv||[]).forEach(dv=>(dv.items||[]).forEach(it=>{ cm[k].del+=oq(it.qty); cm[k].rs+=oq(it.qty)*oq(it.rate); }));
-    ordRemain(o).forEach(it=>cm[k].bal+=oq(it.qty)); });
-  const cKeys=Object.keys(cm).sort((a,b)=>cm[b].bal-cm[a].bal||cm[b].rs-cm[a].rs);
-  const totRs=delivs.reduce((a,dv)=>a+(dv.items||[]).reduce((x,it)=>x+oq(it.qty)*oq(it.rate),0),0);
-  const T=(head,rows)=>`<table class="tv-t"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:#b6bcc9;">— कोई data नहीं —</td></tr>'}</tbody></table>`;
-
-  return `
-  <div class="tv-kpis">
-    <div class="tv-k"><small>कुल Order</small><b>${all.length}</b></div>
-    <div class="tv-k g"><small>Delivery</small><b>${delivs.length}</b></div>
-    <div class="tv-k r"><small>बाक़ी Order</small><b>${pend.length}</b></div>
-    <div class="tv-k b"><small>Delivered ₹</small><b>${fmt(totRs)}</b></div>
-  </div>
-  <div class="tv-card"><div class="tv-h dark">📦 ITEM WISE</div>
-    ${T(['Particulars','Order','दिया','बाक़ी'], iKeys.map(k=>`<tr><td>${esc(k)}</td><td>${oqs(im[k].ord)}</td><td class="g">${oqs(im[k].del)}</td><td class="r">${oqs(im[k].bal)}</td></tr>`).join(''))}
-  </div>
-  <div class="tv-card"><div class="tv-h blue">📍 AREA WISE</div>
-    ${T(['Area','Order','दिया','बाक़ी','Value ₹'], Object.keys(am).sort().map(k=>`<tr><td>${esc(k)}</td><td>${oqs(am[k].ord)}</td><td class="g">${oqs(am[k].del)}</td><td class="r">${oqs(am[k].bal)}</td><td>${fmt(am[k].rs)}</td></tr>`).join(''))}
-  </div>
-  <div class="tv-card"><div class="tv-h green">👤 CUSTOMER WISE</div>
-    ${T(['Name','Area','Order','दिया','बाक़ी','Value ₹'], cKeys.map(k=>`<tr><td>${esc((cm[k].name||'').toUpperCase())}${cm[k].hi?` <small>(${esc(cm[k].hi)})</small>`:''}</td><td>${esc(cm[k].area)}</td><td>${oqs(cm[k].ord)}</td><td class="g">${oqs(cm[k].del)}</td><td class="r">${oqs(cm[k].bal)}</td><td>${fmt(cm[k].rs)}</td></tr>`).join(''))}
-  </div>`;
-}
-function renderTally(){ const el=document.getElementById('tv-body'); if(el) el.innerHTML=tallyHTML(); }
-
-/* =========================================================
    PRINT
 ========================================================= */
 function orderBookPrintHTML(forDate,inclCarry){
@@ -509,27 +458,17 @@ function orderBookPrintHTML(forDate,inclCarry){
       <tbody>${del.map(dv=>`<tr><td style="text-align:center;font-weight:800;">${esc(String(dv.order.no))}</td><td>${esc((dv.order.name||'').toUpperCase())}${dv.order.nameHi?` (${esc(dv.order.nameHi)})`:''}</td><td style="text-align:center;">${esc(areaOf(dv.order.address).code)}</td><td>${(dv.items||[]).map(it=>`${esc(it.name)} ${oqs(it.qty)}${hasRate(it)?' × '+oqs(it.rate):''}${it.extra?' (extra)':''}`).join(' , ')}</td><td style="text-align:center;font-size:10px;">${esc(dv.ts||'')}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;">— —</td></tr>'}</tbody></table>
   </div>`;
 }
-function tallyPrintHTML(){
-  return `<div style="background:#fff;color:#000;padding:10px 12px;font-family:'Poppins','Noto Sans Devanagari',sans-serif;">
-    <div style="text-align:center;font-weight:900;font-size:19px;">SATYAM FOOD PRODUCT</div>
-    <div style="text-align:center;font-size:12px;font-weight:700;margin-bottom:8px;">📊 TALLY VIEW — ${esc(DATE)}</div>
-    ${tallyHTML()}</div>`;
-}
-
 /* =========================================================
    HOOKS
 ========================================================= */
 (function(){
   const _go=go;
-  go=function(n){ _go(n); if(n==='orderbook') renderOrderBook(); if(n==='tally') renderTally(); };
+  go=function(n){ _go(n); if(n==='orderbook') renderOrderBook(); };
   const wire=()=>{
     const pb=document.getElementById('ob-print-btn');
     if(pb&&!pb._w){ pb._w=1; pb.addEventListener('click',()=>printDocument(orderBookPrintHTML(DATE,true),{landscape:false,stretch:true,grow:true})); }
-    const tp=document.getElementById('tv-print-btn');
-    if(tp&&!tp._w){ tp._w=1; tp.addEventListener('click',()=>printDocument(tallyPrintHTML(),{landscape:false,stretch:true,grow:true})); }
   };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire); else wire();
 })();
 window.renderOrderBook=renderOrderBook;
 window.orderBookPrintHTML=orderBookPrintHTML;
-window.renderTally=renderTally;
