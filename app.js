@@ -30,6 +30,7 @@ let go=function(name){
   if(name==='notebook') renderAll();
   if(name==='printhome') renderPrintHome();
   if(name==='sbook' && typeof renderSBook==='function') renderSBook();
+  if(name==='tally' && typeof window.tvOpen==='function') window.tvOpen();
 }
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');
@@ -123,7 +124,15 @@ function exitEditDate(){ CUR_DATE=DATE; KEY='sg_nb_'+DATE; DB=load(); migrate(DB
 /* edit stamp — जब भी कोई entry edit हो: समय (+ तारीख़ अगर back-date) + highlight */
 function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : ''; }
 function editTag(r){ return r.edited? `<span class="ets">✎ ${r.ets}${r.edate?(' · '+r.edate):''}</span>`:''; }
-function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null; }
+function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null;
+  /* पुरानी Plastic Bag entries — सिर्फ़ 25kg bag ही प्रति बोरा, बाक़ी 20kg/50kg/चोकर प्रति kg */
+  db.maal.forEach(r=>{
+    if(r && r.sub==='plastic_bag' && r.kind==='simple'){
+      const u = (r.opt==='25kg bag') ? 'बोरा' : 'kg';
+      r.rateUnit=u; r.qtyUnit=u;
+    }
+  });
+}
 function save(){ localStorage.setItem(KEY,JSON.stringify(DB)); try{ if(window.tvRefresh) tvRefresh(); }catch(e){} }
 /* Tally की गाड़ी list — tally.js से (न मिले तो fallback) */
 function VEH_LIST(){ return window.TV_VEHICLES || [
@@ -297,13 +306,29 @@ function openJama(editIdx=null){
 ========================================================= */
 /* ---- Bag / Daal / Roast की definitions ---- */
 const MAAL_SUBS = {
-  plastic_bag  : {label:'Plastic Bag',  cat:'bag',   icon:'🧺', opts:['20kg bag','25kg bag','50kg bag','चोकर (Chokar)'], rateUnit:'बोरा', form:'simple', qtyLabel:'Qty (बोरा)', qtyUnit:'बोरा'},
+  /* Plastic Bag — सिर्फ़ 25kg bag का Rate प्रति बोरा; 20kg / 50kg / चोकर का Rate प्रति kg */
+  plastic_bag  : {label:'Plastic Bag',  cat:'bag',   icon:'🧺', opts:['20kg bag','25kg bag','50kg bag','चोकर (Chokar)'], rateUnit:'kg', rateUnitBy:{'25kg bag':'बोरा'}, form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   plastic_pouch: {label:'Plastic Pouch',cat:'bag',   icon:'🛍️', opts:['5kg pouch','10kg pouch','500gm','200gm'],        rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   sattu_daal   : {label:'Sattu daal',   cat:'daal',  icon:'🥣', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   chana_daal   : {label:'Chana daal',   cat:'daal',  icon:'🫘', rateUnit:'kg',   form:'simple', qtyLabel:'Qty (kg)', qtyUnit:'kg'},
   wheat_roast  : {label:'Wheat Roast',  cat:'roast', icon:'🌾', rateUnit:'kg',   form:'simple', qtyLabel:'Qty', qtyUnit:''},
   jira         : {label:'Jira (जीरा)',  cat:'roast', icon:'🌿', rateUnit:'kg',   form:'simple', qtyLabel:'Qty', qtyUnit:''}
 };
+/* option के हिसाब से Rate unit — जैसे Plastic Bag में सिर्फ़ 25kg bag = प्रति बोरा */
+function maalRateUnit(S,opt){
+  if(!S) return '';
+  if(S.rateUnitBy && opt && S.rateUnitBy[opt]) return S.rateUnitBy[opt];
+  return S.rateUnit||'';
+}
+/* उसी unit से Qty का label/unit भी बदलेगा */
+function maalQtyMeta(S,opt){
+  if(!S) return {label:'Qty',unit:''};
+  if(S.rateUnitBy){
+    const u=maalRateUnit(S,opt);
+    return {label:'Qty ('+u+')', unit:u};
+  }
+  return {label:S.qtyLabel||'Qty', unit:S.qtyUnit??''};
+}
 /* नयी माल आवत entry → पहले category चुनो */
 function openMaalChooser(){
   popup({
@@ -353,30 +378,42 @@ function openMaalSimple(subKey,editIdx=null){
   const S=MAAL_SUBS[subKey];
   const e = editIdx!==null? DB.maal[editIdx] : {};
   const serial = e.serial || (DB.maal.length+1);
+  const opt0 = e.opt || (S.opts? S.opts[0] : '');
+  const RU0  = maalRateUnit(S,opt0);
+  const QM0  = maalQtyMeta(S,opt0);
   popup({
     title:`${S.icon} ${S.label} — माल आवत`,
-    body:`<div class="pp-note">Serial No: <b>${serial}</b> &nbsp;|&nbsp; Rate <b>प्रति ${S.rateUnit}</b> — Total अपने आप 🪄</div>
-      ${S.opts?`<div class="f-row"><label>${S.label}</label><select id="ms-opt">${S.opts.map(o=>`<option ${e.opt===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
+    body:`<div class="pp-note">Serial No: <b>${serial}</b> &nbsp;|&nbsp; Rate <b id="ms-note-u">प्रति ${RU0}</b> — Total अपने आप 🪄</div>
+      ${S.opts?`<div class="f-row"><label>${S.label}</label><select id="ms-opt">${S.opts.map(o=>`<option ${opt0===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
       <div class="f-row"><label>नाम (Name)</label><input type="text" id="ms-name" value="${esc(e.name||'')}"></div>
       <div class="f-row"><label>पता (Address)</label><input type="text" id="ms-addr" value="${esc(e.address||'')}"></div>
-      <div class="f-row"><label>${S.qtyLabel||'Qty'}</label><input type="number" id="ms-qty" inputmode="decimal" placeholder="0" value="${e.qty??''}"></div>
-      <div class="f-row"><label>Rate (प्रति ${S.rateUnit})</label><input type="number" id="ms-rate" inputmode="decimal" placeholder="बाद में" value="${e.rate??''}"></div>
+      <div class="f-row"><label id="ms-qty-lbl">${QM0.label}</label><input type="number" id="ms-qty" inputmode="decimal" placeholder="0" value="${e.qty??''}"></div>
+      <div class="f-row"><label id="ms-rate-lbl">Rate (प्रति ${RU0})</label><input type="number" id="ms-rate" inputmode="decimal" placeholder="बाद में" value="${e.rate??''}"></div>
       <div class="f-row"><label>Total Amount</label><div class="ro" id="ms-total">${e.amount?fmt(e.amount):'0'}</div></div>
       <div class="f-row"><label>गाडी नं०</label><input type="text" id="ms-veh" placeholder="(optional)" value="${esc(e.vehicle||'')}"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ms-save">✓ Save</button></div>`,
     onOpen(bk){
       const g=id=>bk.querySelector('#'+id);
+      const curOpt=()=>S.opts? g('ms-opt').value : '';
       const upd=()=>{ const q=parseFloat(g('ms-qty').value)||0, r=parseFloat(g('ms-rate').value)||0; g('ms-total').textContent=fmt(q*r); };
+      /* option बदलते ही Rate/Qty unit अपने आप बदलेगा (25kg bag = प्रति बोरा, बाक़ी = प्रति kg) */
+      const updUnit=()=>{ const u=maalRateUnit(S,curOpt()), qm=maalQtyMeta(S,curOpt());
+        const a=g('ms-note-u'); if(a) a.textContent='प्रति '+u;
+        const b=g('ms-rate-lbl'); if(b) b.textContent='Rate (प्रति '+u+')';
+        const c=g('ms-qty-lbl');  if(c) c.textContent=qm.label; };
+      if(S.opts) g('ms-opt').addEventListener('change',updUnit);
+      updUnit();
       g('ms-qty').addEventListener('input',upd); g('ms-rate').addEventListener('input',upd);
       g('ms-qty').focus();
       g('ms-save').addEventListener('click',()=>{
         const q=parseFloat(g('ms-qty').value);
-        if(!(q>0)){ toast((S.qtyLabel||'Qty')+' भरें'); return; }
+        const qm=maalQtyMeta(S,curOpt());
+        if(!(q>0)){ toast((qm.label||'Qty')+' भरें'); return; }
         const r=g('ms-rate').value.trim()===''?null:parseFloat(g('ms-rate').value);
         const rec={serial,kind:'simple',cat:S.cat,sub:subKey,label:S.label,
-          opt:S.opts? g('ms-opt').value : '',
+          opt:curOpt(),
           name:g('ms-name').value.trim(),address:g('ms-addr').value.trim(),
-          qty:q,qtyUnit:S.qtyUnit??'',rate:r,rateUnit:S.rateUnit,amount:(r||0)*q,
+          qty:q,qtyUnit:qm.unit??'',rate:r,rateUnit:maalRateUnit(S,curOpt()),amount:(r||0)*q,
           vehicle:g('ms-veh').value.trim(),
           ts:e.ts||nowTS(),cut:e.cut||false};
         if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.maal[editIdx]=rec; } else DB.maal.push(rec);
