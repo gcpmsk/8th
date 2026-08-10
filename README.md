@@ -226,3 +226,71 @@ Record Book → **🧾 Order Book** → तारीख़ list.
 - **SI No continue** — Atta Receipt व Wheat Slip का SI No अगले दिन फिर 1 से शुरू नहीं होगा; सभी तारीख़ों में सबसे बड़ा नंबर देखकर +1 होता है
 - **Record Book → S.Book** — अब पुराना सारा डेटा दिखता है (`sg_sb_` + `sg_nb_` + `sg_arcpt_` + `sg_wrcpt_` सभी तारीख़ें merge)
 - **Record Book → Order Book** — पिछली + आज की तारीख़ का Order Book देखें व print करें
+
+---
+
+## 📊 TALLY VIEW (पूरा नया — v2)
+
+पुराना Tally (item/area/customer table) **हटा दिया गया**। अब Tally View पर click करते ही **दो option**:
+
+### 1️⃣ C/D  (Creditors & Debtors)
+तीन हिस्से — **Creditors · Debtors · Other**
+
+#### 🟥 Creditors (जिनको हमें देना है)
+* ऊपर **← Back** और **🖨️ Print**
+* नीचे **🔍 Search box** — कुछ अक्षर लिखते ही नाम filter, click → पूरी details
+* उसके नीचे **एक ही line में 4 colourful chips** (Airtable style):
+  | chip | क्या दिखाता है |
+  |---|---|
+  | 📋 **All** | सारे customer |
+  | 💸 **Give Due** | जिनको payment देना बाक़ी है |
+  | 📍 **Area** | area-wise box → click → उस area के customer |
+  | ⏰ **7Days End** | wheat receipt भरे 7+ दिन हो गये — **सबसे पुराना सबसे ऊपर** |
+* List: `Sr · नाम (पता)` + नीचे `mob- number`, ऊपर **Due / Paid** column
+* **Due** = बचे हुए receipt का total (एक से ज़्यादा हो तो `N receipt बाक़ी` badge)
+  *उदा.* महाजन ने 3 बार wheat दिया, 1 का payment हुआ → Due में **सिर्फ़ 2 receipt** का amount, Paid ख़ाली
+* **Paid** = advance (जितना ज़्यादा दे दिया)
+
+#### 🟩 Debtors (जिनसे हमें लेना है)
+Creditors जैसा ही, पर chips: 📋 **All** · 💰 **Due** · 📍 **Area** · 🚨 **Limit Cross**
+* **Limit Cross** = जिसके 2 (default) से ज़्यादा receipt बाक़ी हैं
+* उस customer पर **double-tap** → pop-up → limit set करें (जैसे `4` भरें तो 4 receipt तक Limit Cross में नहीं दिखेगा)
+
+#### 👤 Customer Profile (Due/Paid पर click)
+* ऊपर बीच में **नाम (पता)** + `mob-`, बायें **← Back**, दायें **🖨️ Print**
+* नीचे **बायें DUE · दायें PAID** — बीच में line
+* **DUE** में: bill की final amount + नीचे `R.No` (wheat/atta receipt no) और **तारीख़** (जब receipt बना)
+* **PAID** में: दिया हुआ पैसा + **time stamp** 🕐
+
+#### 🟦 Other — 4 खाते
+| खाता | data कहाँ से |
+|---|---|
+| 🧺 **कली बोरा (Cr)** | माल आवत खाते → Bag (Plastic Bag / Pouch) |
+| 👷 **Staff (Cr)** | Attendance के नाम — profile अपने आप बनता है |
+| 🥣 **Daal (Cr)** | माल आवत खाते → Daal (Sattu / Chana) |
+| 🔥 **Roast (Cr)** | माल आवत खाते → Roast (Wheat Roast / Jira) |
+
+**Staff (Cr)** में हर staff का **Due / Credit** column —
+नगद नाम खाते में staff को दिया पैसा/आटा/सत्तू/बेसन → **Due** में। महीने के आख़िर में
+💰 **Credit** पर click → salary भरें → बचा amount निकलते ही **pop-up**:
+`➡️ Add Next Month` (अगले महीने carry) या `💵 Total Give` (नगद नाम खाते में entry ✔)
+
+**📱 Mobile number बाद में भी** — ऊपर `Creditors` / `Debtors` / `Other` title पर **3 बार click** →
+Mobile Add ON → किसी नाम पर click → number भरें
+
+---
+
+### 2️⃣ 🏭 Mill खर्च
+| section | क्या है |
+|---|---|
+| 📦 **Product** | Loading · Unloading · भाड़ा · Overtime · बिजली बिल — box पर click → सिर्फ़ **अमाउंट** भरें<br>**PRODUCT title पर 3 बार click → नया item add** |
+| 🚐 **गाडी** | 4 गाड़ी — `BR34GA8293` Pickup 🛻, `BR34GA8447` CNG Van 🚐, `BR34U9778` Bike 🏍️, `WA24AE4843` Car Diesel 🚗<br>हर गाड़ी में **⛽ Fuel** और **🔧 Maintenance** दो column |
+| 🔧 **Mill Maintenance** | 🏭 **Plant** और 🏢 **Office** — नाम + अमाउंट |
+
+**दोनों तरफ़ sync 🔄** — Tally में भरा हर amount notebook के **नगद खर्च → Mill खर्च** में
+अपने आप चला जाता है, और notebook के नगद खर्च की entry Tally के Product / गाडी में दिखती है।
+
+Notebook के **नगद खर्च → 🚐 वेन** में अब `Petrol` की जगह **⛽ Fuel** —
+Van चुनने पर गाड़ी नंबर का **dropdown**, Bike चुनने पर bike नंबर अपने आप 🪄
+
+**Attendance** में नया नाम add करते ही उसके आगे **(mill staff)** अपने आप लग जाता है।
