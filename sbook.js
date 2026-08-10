@@ -169,8 +169,9 @@ function sbSimpleLine(r){
   const un=r.qtyUnit||r.rateUnit||'kg';
   const who=(r.name||'').trim();
   const ad=(r.address||'').trim();
+  /* S.Book में Serial No नहीं दिखेगा — सिर्फ़ Notebook में */
   return `<div class="sb-line ${amt>0?'blue':'pend'}"><span class="sb-amt">${amt>0?sbF(amt):'—'}</span><span class="sb-txt">
-    <b>${sbF(r.serial||'')}${'\u0029'}</b> ${esc(r.label||'')}${r.opt?` (${esc(r.opt)})`:''}${who?` — ${esc(who)}`:''}${ad?` (${esc(ad)})`:''}
+    <b>${esc(r.label||'')}</b>${r.opt?` (${esc(r.opt)})`:''}${who?` — ${esc(who)}`:''}${ad?` (${esc(ad)})`:''}
     <div class="sb-sub big">${sbF(qty)}${esc(un)} × ${rate===null?'?':sbF(rate)}rs</div>
     ${r.vehicle?`<div class="sb-sub">गाडी नं०- ${esc(r.vehicle)}</div>`:''}</span></div>`;
 }

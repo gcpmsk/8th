@@ -644,9 +644,23 @@ function tvPrint(){
 /* =========================================================
    HOOK — go('tally')
 ========================================================= */
+/* NOTE: app.js में `let go=...` है — यह script-scope binding है, window.go नहीं।
+   इसलिए पहले window.go में hook लगाने से Tally कभी render ही नहीं होता था (खाली screen)।
+   अब सीधे उसी `go` binding को wrap करते हैं (orderbook.js की तरह) — safe fallback के साथ। */
+function tvOpen(){
+  TVS.view='root'; TVS.q=''; TVS.chip='all'; TVS.area=''; TVS.profile=null;
+  tvRefresh(); tvRender();
+}
 (function(){
-  const _go=window.go;
-  window.go=function(n){ _go(n); if(n==='tally'){ TVS.view='root'; TVS.q=''; TVS.chip='all'; TVS.area=''; tvRefresh(); tvRender(); } };
+  /* app.js का go() अब खुद tvOpen() बुलाता है।
+     यह सुरक्षा-जाल तब काम आता है जब किसी वजह से वह छूट जाए */
+  document.addEventListener('click',e=>{
+    const t=e.target.closest('[data-go="tally"]');
+    if(t) setTimeout(()=>{ const s=document.getElementById('tally-screen');
+      if(s && s.classList.contains('active')){ const b=document.getElementById('tv-body');
+        if(b && !b.innerHTML.trim()) tvOpen(); } },0);
+  });
 })();
 window.renderTally=function(){ tvRefresh(); tvRender(); };
+window.tvOpen=tvOpen;
 window.tvRefresh=tvRefresh;
