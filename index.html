@@ -720,7 +720,31 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .tvadd{display:block;width:calc(100% - 24px);margin:12px;border:none;border-radius:13px;padding:13px;background:linear-gradient(135deg,#20bf6b,#0b6e4f);color:#fff;font-size:14.5px;font-weight:900;cursor:pointer;box-shadow:0 12px 26px -14px rgba(11,110,79,.8);font-family:'Noto Sans Devanagari','Poppins';}
 .tvadd:active{transform:scale(.97);}
 .rr{color:#c0392b;}
-@media print{ .tvhead,.tvsearch,.tvchips,.tvadd,.vbtns,.tvmob{display:none!important;} .tvrow{break-inside:avoid;} }
+/* ---- नये buttons / paid mode / suggestion / change record ---- */
+.tvbtn.add{background:linear-gradient(135deg,#20bf6b,#0b6e4f);color:#fff;box-shadow:0 10px 22px -12px rgba(11,110,79,.9);}
+.tvbtn.paid{background:linear-gradient(135deg,#3498db,#1f4ed8);color:#fff;}
+.tvbtn.paidon{background:linear-gradient(135deg,#2ecc71,#0b6e4f);color:#fff;animation:pglow 1.4s infinite;}
+@keyframes pglow{0%,100%{box-shadow:0 0 0 0 rgba(46,204,113,.6);}50%{box-shadow:0 0 0 8px rgba(46,204,113,0);}}
+.tvpaybar{margin:10px 12px;padding:11px 13px;border-radius:14px;background:linear-gradient(135deg,#0b6e4f,#16a085);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-family:'Noto Sans Devanagari','Poppins';}
+.tvpaybar .pb{border:none;border-radius:10px;padding:8px 14px;font-weight:900;font-size:13px;cursor:pointer;font-family:inherit;}
+.tvpaybar .pb.g{background:#fff;color:#0b6e4f;} .tvpaybar .pb.o{background:rgba(0,0,0,.3);color:#ffe28a;}
+.mkc u{display:block;text-decoration:none;font-size:10.5px;opacity:.85;margin-top:3px;font-weight:700;}
+.sg-sug{position:absolute;left:0;right:0;top:100%;z-index:99;background:#fff;border:1.5px solid #dfe6ef;border-radius:11px;box-shadow:0 16px 34px -14px rgba(15,23,42,.45);max-height:210px;overflow:auto;display:none;}
+.sg-sug.on{display:block;}
+.sg-sug-i{padding:8px 11px;font-size:13px;cursor:pointer;border-bottom:1px solid #f1f4f9;font-family:'Noto Sans Devanagari','Poppins';}
+.sg-sug-i:hover{background:#eef6ff;}
+.sg-sug-i b{font-weight:800;color:#1b2a41;} .sg-sug-i i{font-style:normal;color:#7a869a;font-size:11.5px;margin-left:5px;}
+.sg-sug-i small{display:block;color:#16a085;font-weight:700;font-size:10.5px;}
+.chg-wrap{max-width:960px;margin:0 auto;padding:12px;}
+.chg-day{margin-bottom:14px;background:#fff;border-radius:14px;box-shadow:0 14px 30px -18px rgba(31,97,141,.5);overflow:hidden;}
+.chg-day > h4{margin:0;padding:10px 13px;background:linear-gradient(135deg,#1b2a41,#0f172a);color:#ffe28a;font-size:13.5px;font-weight:900;letter-spacing:.5px;}
+.chg-l{display:flex;gap:10px;align-items:flex-start;padding:9px 13px;border-bottom:1px solid #f1f4f9;font-size:12.5px;font-family:'Noto Sans Devanagari','Poppins';}
+.chg-l .cl-t{min-width:74px;color:#7a869a;font-weight:800;font-size:11px;}
+.chg-l .cl-b{flex:1;} .chg-l .cl-b b{color:#1b2a41;} .chg-l .cl-b em{font-style:normal;color:#2980b9;font-weight:800;}
+.chg-l .cl-a{font-weight:900;color:#0b6e4f;white-space:nowrap;}
+.chg-l .cl-a.dn{color:#c0392b;}
+.chg-empty{text-align:center;padding:40px 12px;color:#8a94a6;font-weight:700;}
+@media print{ .tvhead,.tvsearch,.tvchips,.tvadd,.vbtns,.tvmob,.tvpaybar{display:none!important;} .tvrow{break-inside:avoid;} }
 @media print{ .ob-top,.ob-add{display:none!important;} }
 </style>
 </head>
@@ -860,7 +884,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
   </div>
 </div>
 
-<div class="screen sub-screen" id="recordbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📖 Record Book</div></div>
+<div class="screen sub-screen" id="recordbook-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📖 Record Book</div><button class="nb-tool blue" id="rec-chg-btn" style="position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:3;">🕘 Change View</button></div>
   <div class="print-choice" style="max-width:560px;width:94%;z-index:2;">
     <button id="rec-choose-nb"><span class="pc-ico">📔</span>Notebook<br><small style="color:#8a94a6">Daily बही-खाता</small></button>
     <button id="rec-choose-sb"><span class="pc-ico">📚</span>S.Book<br><small style="color:#8a94a6">Special Book</small></button>
@@ -868,6 +892,8 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <button id="rec-choose-pr"><span class="pc-ico">🖨️</span>Print Record<br><small style="color:#8a94a6">Atta Receipt + Wheat Slip</small></button>
     <button id="rec-choose-ob"><span class="pc-ico">🧾</span>Order Book<br><small style="color:#8a94a6">पिछली + आज की तारीख़</small></button>
   </div></div>
+<div class="screen sub-screen" id="changerec-screen"><div class="sub-head"><button class="back-btn" data-go="recordbook">← Back</button><div class="sub-title">🕘 Change Record</div></div>
+  <div class="chg-wrap" id="chg-body"></div></div>
 <div class="screen sub-screen" id="recorddates-screen"><div class="sub-head"><button class="back-btn" data-go="recordbook">← Back</button><div class="sub-title" id="rec-dates-title">📅 तारीख़ चुनें</div></div><div class="rec-list" id="rec-dates-list"></div></div>
 <div class="screen sub-screen" id="recordview-screen">
   <div class="sub-head"><button class="back-btn" data-go="recorddates">← Dates</button><div class="sub-title" id="rec-view-title"></div></div>

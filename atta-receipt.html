@@ -960,6 +960,83 @@
         const all = loadArcpts();
         all.push(rec);
         saveArcpts(all);
+        pushCashToRokad(rec);
+    }
+
+    /* ---------- 🔎 नाम + पता AUTO-SUGGEST (पूरे system के save नाम) ---------- */
+    function arParties(){
+        const map={};
+        const add=(n,a)=>{ n=String(n||'').trim(); if(!n) return;
+            const k=n.toUpperCase().replace(/\s+/g,' ')+'|'+String(a||'').trim().toUpperCase();
+            if(!map[k]) map[k]={name:n,address:String(a||'').trim()};
+            else if(!map[k].address && a) map[k].address=String(a).trim(); };
+        try{ const man=JSON.parse(localStorage.getItem('sg_tv_manual')||'[]');
+            (Array.isArray(man)?man:[]).forEach(p=>add(p.name,p.address)); }catch(e){}
+        for(let i=0;i<localStorage.length;i++){
+            const k=localStorage.key(i); if(!k) continue;
+            try{
+                if(k.indexOf('sg_nb_')===0){ const db=JSON.parse(localStorage.getItem(k))||{};
+                    ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address)));
+                } else if(k.indexOf('sg_arcpt_')===0 || k.indexOf('sg_wrcpt_')===0){
+                    (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name||r.nameHi, r.address||r.addressHi));
+                }
+            }catch(e){}
+        }
+        return Object.values(map);
+    }
+    function arSuggest(nameId, addrId){
+        const inp=document.getElementById(nameId); if(!inp) return;
+        const addr=document.getElementById(addrId);
+        const box=document.createElement('div');
+        box.style.cssText='position:absolute;z-index:9999;background:#fff;border:1.5px solid #cbd5e1;border-radius:10px;box-shadow:0 14px 30px -12px rgba(15,23,42,.45);max-height:220px;overflow:auto;display:none;min-width:240px;font-size:13px;';
+        document.body.appendChild(box);
+        const hide=()=>{ box.style.display='none'; box.innerHTML=''; };
+        inp.addEventListener('input',()=>{
+            const q=inp.value.trim().toUpperCase();
+            if(q.length<1){ hide(); return; }
+            const hits=arParties().filter(p=>p.name.toUpperCase().includes(q)||String(p.address||'').toUpperCase().includes(q)).slice(0,8);
+            if(!hits.length){ hide(); return; }
+            box.innerHTML=hits.map((p,i)=>`<div data-i="${i}" style="padding:8px 11px;cursor:pointer;border-bottom:1px solid #f1f5f9;"><b>${p.name}</b>${p.address?` <span style="color:#64748b;font-size:11.5px;">(${p.address})</span>`:''}</div>`).join('');
+            const r=inp.getBoundingClientRect();
+            box.style.left=(r.left+window.scrollX)+'px';
+            box.style.top=(r.bottom+window.scrollY+3)+'px';
+            box.style.width=Math.max(240,r.width)+'px';
+            box.style.display='block';
+            box.querySelectorAll('[data-i]').forEach(el=>el.addEventListener('mousedown',ev=>{
+                ev.preventDefault(); const p=hits[+el.dataset.i];
+                inp.value=p.name; if(addr) addr.value=p.address||'';
+                if(typeof autoTranslate==='function'){ autoTranslate('name'); autoTranslate('address'); }
+                hide();
+            }));
+        });
+        inp.addEventListener('blur',()=>setTimeout(hide,200));
+    }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>{ try{ arSuggest('inp-name','inp-address'); }catch(e){} });
+    else { try{ arSuggest('inp-name','inp-address'); }catch(e){} }
+
+    /* नाम में "cash" लिखा हो → notebook के रोकड + नगदी बिक्री में (Km) entry */
+    function pushCashToRokad(rec){
+        try{
+            if(!/cash/i.test(rec.name||'')) return;
+            const k='sg_nb_'+APP_DATE;
+            let db=null; try{ db=JSON.parse(localStorage.getItem(k)); }catch(e){ db=null; }
+            if(!db) db={opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null};
+            if(!Array.isArray(db.rokad)) db.rokad=[];
+            if((db.rokad||[]).some(r=>r.fromArcpt && String(r.fromArcpt)===String(rec.no))) return;
+            const items=(rec.items||[]).map(x=>{
+                const q=parseFloat(x.qty)||0, r=parseFloat(x.rate)||0, t=q*r;
+                return {item:x.name, sub:'', qty:q, price:r, total:t, cash:t, online:0, km:true};
+            }).filter(x=>x.total>0);
+            if(!items.length) return;
+            const total=items.reduce((a,x)=>a+x.total,0);
+            db.rokad.push({items,total,cash:total,online:0,ts:rec.ts,cut:false,fromArcpt:rec.no});
+            localStorage.setItem(k,JSON.stringify(db));
+            try{
+                const cl=JSON.parse(localStorage.getItem('sg_changelog')||'[]');
+                cl.push({date:APP_DATE,ts:rec.ts,t:Date.now(),sec:'रोकड + नगदी बिक्री',what:'Cash Receipt',name:rec.name,neu:total,note:'Atta Receipt #'+rec.no+' (Km)'});
+                localStorage.setItem('sg_changelog',JSON.stringify(cl.slice(-4000)));
+            }catch(e){}
+        }catch(e){}
     }
 
     function formatSl(num) { return String(num).padStart(2, '0'); }
