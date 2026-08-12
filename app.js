@@ -22,7 +22,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 })();
 
 /* ---------- navigation ---------- */
-const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',tally:'tally-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen'};
+const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',tally:'tally-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen',changerec:'changerec-screen'};
 let go=function(name){
   $$('.screen').forEach(s=>s.classList.remove('active'));
   $('#'+ (SCREENS[name]||SCREENS.home)).classList.add('active');
@@ -31,7 +31,26 @@ let go=function(name){
   if(name==='printhome') renderPrintHome();
   if(name==='sbook' && typeof renderSBook==='function') renderSBook();
   if(name==='tally' && typeof window.tvOpen==='function') window.tvOpen();
+  if(name==='changerec') renderChangeRec();
 }
+/* 🕘 Change Record — पूरे system का date-wise बदलाव record (सिर्फ़ पढ़ने के लिए) */
+function renderChangeRec(){
+  const el=document.getElementById('chg-body'); if(!el) return;
+  const all=readChangeLog().slice().sort((a,b)=>(b.t||0)-(a.t||0));
+  if(!all.length){ el.innerHTML='<div class="chg-empty">— अभी कोई बदलाव record नहीं —<br><small>जो भी entry / paid / due बदलेगा वह यहाँ date + time के साथ save होगा</small></div>'; return; }
+  const days={};
+  all.forEach(x=>{ (days[x.date||'—']=days[x.date||'—']||[]).push(x); });
+  el.innerHTML=Object.keys(days).sort((a,b)=>dateSortVal(b).localeCompare(dateSortVal(a))).map(d=>
+    `<div class="chg-day"><h4>📅 ${esc(d)} — ${days[d].length} बदलाव</h4>
+      ${days[d].map(x=>`<div class="chg-l">
+        <div class="cl-t">🕐 ${esc(x.ts||'')}</div>
+        <div class="cl-b"><b>${esc(x.name||'—')}</b> · <em>${esc(x.what||'')}</em>
+          <div style="color:#7a869a;font-size:11px;">${esc(x.sec||'')}${x.note?' · '+esc(x.note):''}</div></div>
+        <div class="cl-a ${x.old!==undefined&&x.neu!==undefined&&parseFloat(x.neu)<parseFloat(x.old)?'dn':''}">${x.old!==undefined&&x.old!==''?esc(String(x.old))+' → ':''}${x.neu!==undefined&&x.neu!==''?'₹'+esc(String(x.neu)):''}</div>
+      </div>`).join('')}
+    </div>`).join('');
+}
+window.renderChangeRec=renderChangeRec;
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]');
   if(g){ go(g.dataset.go); }
@@ -122,7 +141,76 @@ function blank(){ const b=blankRaw(); return applyCarry(b,DATE); }
 function enterEditDate(d){ CUR_DATE=d; KEY='sg_nb_'+d; try{ DB=JSON.parse(localStorage.getItem(KEY))||blankRaw(); }catch(e){ DB=blankRaw(); } migrate(DB); applyCarry(DB,d); }
 function exitEditDate(){ CUR_DATE=DATE; KEY='sg_nb_'+DATE; DB=load(); migrate(DB); }
 /* edit stamp — जब भी कोई entry edit हो: समय (+ तारीख़ अगर back-date) + highlight */
-function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : ''; }
+function stampEdit(rec){ rec.edited=true; rec.ets=nowTS(); rec.edate = CUR_DATE!==DATE ? DATE : '';
+  try{ logChange({sec:'notebook', what:'Edit', name:(rec.name||rec.label||'entry'), neu:(rec.amount!==undefined?rec.amount:(rec.total||'')), note:'Notebook '+(CUR_DATE||'')}); }catch(e){}
+}
+/* =========================================================
+   🕘 CHANGE LOG — पूरे system का record (कोई delete/edit नहीं कर सकता)
+========================================================= */
+const CHG_KEY='sg_changelog';
+function logChange(o){
+  try{
+    const a=JSON.parse(localStorage.getItem(CHG_KEY)||'[]');
+    a.push(Object.assign({date:(typeof CUR_DATE!=='undefined'?CUR_DATE:todayStr()), ts:nowTS(), t:Date.now()},o||{}));
+    localStorage.setItem(CHG_KEY,JSON.stringify(a.slice(-4000)));
+  }catch(e){}
+}
+function readChangeLog(){ try{ return JSON.parse(localStorage.getItem(CHG_KEY)||'[]'); }catch(e){ return []; } }
+window.logChange=logChange; window.readChangeLog=readChangeLog;
+
+/* =========================================================
+   🔎 PARTY SUGGEST — पूरे system का नाम+पता auto-fill
+========================================================= */
+function sgParties(){
+  const map={};
+  const add=(n,a,m)=>{ n=String(n||'').trim(); if(!n) return;
+    const k=n.toUpperCase().replace(/\s+/g,' ')+'|'+String(a||'').trim().toUpperCase();
+    if(!map[k]) map[k]={name:n,address:String(a||'').trim(),mob:m||''};
+    else if(!map[k].address && a) map[k].address=String(a).trim();
+    if(m && !map[k].mob) map[k].mob=m; };
+  try{
+    const man=JSON.parse(localStorage.getItem('sg_tv_manual')||'[]');
+    (Array.isArray(man)?man:[]).forEach(p=>add(p.name,p.address,p.mob));
+  }catch(e){}
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k) continue;
+    try{
+      if(k.indexOf('sg_nb_')===0){ const db=JSON.parse(localStorage.getItem(k))||{};
+        ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address)));
+      } else if(k.indexOf('sg_arcpt_')===0 || k.indexOf('sg_wrcpt_')===0){
+        (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name||r.nameHi, r.address||r.addressHi));
+      }
+    }catch(e){}
+  }
+  try{ const mb=JSON.parse(localStorage.getItem('sg_mobiles')||'{}')||{};
+    Object.values(map).forEach(p=>{ const kk=p.name.toUpperCase().replace(/\s+/g,' '); if(mb[kk]) p.mob=p.mob||mb[kk]; });
+  }catch(e){}
+  return Object.values(map);
+}
+window.sgParties=sgParties;
+/* किसी भी name input पर suggestion box लगाओ */
+function sgSuggest(nameInp, addrInp){
+  if(!nameInp || nameInp.dataset.sgsug) return; nameInp.dataset.sgsug='1';
+  const box=document.createElement('div'); box.className='sg-sug';
+  nameInp.parentNode.style.position='relative';
+  nameInp.parentNode.appendChild(box);
+  const hide=()=>{ box.classList.remove('on'); box.innerHTML=''; };
+  nameInp.addEventListener('input',()=>{
+    const q=nameInp.value.trim().toUpperCase();
+    if(q.length<1){ hide(); return; }
+    const hits=sgParties().filter(p=>p.name.toUpperCase().includes(q)||String(p.address||'').toUpperCase().includes(q)).slice(0,8);
+    if(!hits.length){ hide(); return; }
+    box.innerHTML=hits.map((p,i)=>`<div class="sg-sug-i" data-i="${i}"><b>${esc(p.name)}</b>${p.address?`<i>(${esc(p.address)})</i>`:''}${p.mob?`<small>📱${esc(p.mob)}</small>`:''}</div>`).join('');
+    box.classList.add('on');
+    box.querySelectorAll('.sg-sug-i').forEach(el=>el.addEventListener('mousedown',ev=>{
+      ev.preventDefault(); const p=hits[+el.dataset.i];
+      nameInp.value=p.name; if(addrInp) addrInp.value=p.address||''; hide();
+    }));
+  });
+  nameInp.addEventListener('blur',()=>setTimeout(hide,180));
+}
+window.sgSuggest=sgSuggest;
 function editTag(r){ return r.edited? `<span class="ets">✎ ${r.ets}${r.edate?(' · '+r.edate):''}</span>`:''; }
 function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null;
   /* पुरानी Plastic Bag entries — सिर्फ़ 25kg bag ही प्रति बोरा, बाक़ी 20kg/50kg/चोकर प्रति kg */
@@ -289,12 +377,13 @@ function openJama(editIdx=null){
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="jm-save">✓ Save</button></div>`,
     onOpen(bk){
       wireSeg(bk);
+      sgSuggest(bk.querySelector('#jm-name'), bk.querySelector('#jm-addr'));
       bk.querySelector('#jm-save').addEventListener('click',()=>{
         const name=bk.querySelector('#jm-name').value.trim(), amt=parseFloat(bk.querySelector('#jm-amt').value)||0;
         if(!name||amt<=0){ toast('नाम और Amount भरें'); return; }
         const online = segVal(bk)==='online' ? amt : 0;
         const rec={name,address:bk.querySelector('#jm-addr').value.trim(),amount:amt,online,ts:e.ts||nowTS(),cut:e.cut||false,edited:e.edited,ets:e.ets,edate:e.edate};
-        if(editIdx!==null){ stampEdit(rec); DB.jama[editIdx]=rec; } else DB.jama.push(rec);
+        if(editIdx!==null){ stampEdit(rec); DB.jama[editIdx]=rec; } else { DB.jama.push(rec); logChange({sec:'जमा नाम खाते',what:'नयी entry',name:rec.name,neu:rec.amount,note:rec.address||''}); }
         save(); closePopup(); renderAll();
       });
     }
@@ -513,6 +602,7 @@ function openNagad(editIdx=null){
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="ng-save">✓ Save</button></div>`,
     onOpen(bk){
       wireSeg(bk);
+      sgSuggest(bk.querySelector('#ng-name'), bk.querySelector('#ng-addr'));
       bk.querySelector('#ng-serial').addEventListener('input',()=>{
         const sn=parseInt(bk.querySelector('#ng-serial').value);
         const m=DB.maal.find(x=>x.serial===sn);
@@ -525,7 +615,7 @@ function openNagad(editIdx=null){
           serialRef:parseInt(bk.querySelector('#ng-serial').value)||null,
           mode:segVal(bk)||'cash', item:bk.querySelector('#ng-item').value||'',
           ts:e.ts||nowTS(),cut:e.cut||false};
-        if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.nagad[editIdx]=rec; } else DB.nagad.push(rec);
+        if(editIdx!==null){ rec.edited=e.edited; rec.ets=e.ets; rec.edate=e.edate; stampEdit(rec); DB.nagad[editIdx]=rec; } else { DB.nagad.push(rec); logChange({sec:'नगद नाम खाते',what:'नयी entry',name:rec.name,neu:rec.amount,note:rec.address||''}); }
         save(); closePopup(); renderAll();
       });
     }
@@ -657,7 +747,7 @@ function openKharch(editIdx=null){
           }
         }
         rec.ts=e?e.ts:nowTS(); rec.cut=e?e.cut:false;
-        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else DB.kharch.push(rec);
+        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else { DB.kharch.push(rec); logChange({sec:'नगद खर्च',what:'नयी entry',name:rec.name,neu:rec.amount}); }
         save(); closePopup(); renderAll();
       });
       if(e){ typeSel.value=e.type==='van'?'van':'mill'; typeSel.dispatchEvent(new Event('change')); }
@@ -735,7 +825,7 @@ function openLabour(editIdx=null){
         if(!labour.length){ toast('कुछ भरें'); return; }
         const total=labour.reduce((a,x)=>a+x.amt,0);
         const rec={type:'labour',name:'Labour',amount:total,labour,ts:e?e.ts:nowTS(),cut:e?e.cut:false};
-        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else DB.kharch.push(rec);
+        if(editIdx!==null){ rec.edited=e&&e.edited; rec.ets=e&&e.ets; rec.edate=e&&e.edate; stampEdit(rec); DB.kharch[editIdx]=rec; } else { DB.kharch.push(rec); logChange({sec:'नगद खर्च',what:'नयी entry',name:rec.name,neu:rec.amount}); }
         save(); closePopup(); renderAll();
       });
     }
@@ -805,7 +895,7 @@ function esc(s){ return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt
 function buildRokad(db,live){
   return db.rokad.map((r,i)=>{
     const lines=r.items.map(it=>{
-      let v=it.sub; if(v==='गोल्ड')v='g'; if(v==='चोकर')v='';
+      let v=it.sub; if(v==='गोल्ड')v='Gold'; if(v==='चोकर')v='';
       let pay='';
       if(it.online>0&&it.cash>0) pay=` <span class="pay-mix">(<span class="cash-part">${fmt(it.cash)}</span>+<span class="ac-part">${fmt(it.online)} A/C</span>)</span>`;
       else if(it.online>0) pay=` <span class="ac-mark">(A/C)</span>`;
@@ -1456,6 +1546,7 @@ $('#rec-choose-sb').addEventListener('click',()=>{ recMode='sb'; showRecDates();
 $('#rec-choose-att').addEventListener('click',()=>{ recMode='att'; showRecDates(); });
 $('#rec-choose-pr')?.addEventListener('click',()=>{ recMode='pr'; showRecDates(); });
 $('#rec-choose-ob')?.addEventListener('click',()=>{ recMode='ob'; showRecDates(); });
+$('#rec-chg-btn')?.addEventListener('click',()=>go('changerec'));
 function showRecDates(){
   const prefix = recMode==='nb'?'sg_nb_': recMode==='sb'?'sg_sb_': recMode==='pr'?'sg_arcpt_': recMode==='ob'?'sg_ord_':'sg_att_';
   if(recMode==='pr'){

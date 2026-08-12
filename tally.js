@@ -26,6 +26,7 @@ const TV_LIMIT  = 'sg_deb_limit';      // { NAMEKEY : 4 }
 const TV_SCRED  = 'sg_staff_credit';   // { NAMEKEY : { "08-2026": 12000 } }
 const TV_SCARRY = 'sg_staff_carry';    // { NAMEKEY : amount carried to next month }
 const TV_PROD   = 'sg_mk_products';    // ["Loading","Unloading",...]
+const TV_MAN    = 'sg_tv_manual';      // manual Debtor/Creditor parties
 function tvMob(k){ return (tvJSON(TV_MOB,{})||{})[k]||''; }
 function tvSetMob(k,v){ const m=tvJSON(TV_MOB,{})||{}; if(v) m[k]=v; else delete m[k]; tvSet(TV_MOB,m); }
 function tvLimit(k){ const l=tvJSON(TV_LIMIT,{})||{}; return tvN(l[k])||2; }
@@ -118,11 +119,22 @@ function tvBuild(force){
   /* --- Atta Receipt (बिक्री) → DEBTOR due --- */
   tvDates('sg_arcpt_').forEach(date=>{
     tvArr('sg_arcpt_'+date).forEach(r=>{
-      const nm=r.nameHi||r.name; if(!nm) return;
-      const d=C(deb,nm,r.addressHi||r.address); if(!d) return;
+      /* ⚠️ हमेशा English नाम/पता — notebook में English ही लिखा जाता है, वरना दो debtors बन जाते हैं */
+      const nm=r.name||r.nameHi; if(!nm) return;
+      const d=C(deb,nm,r.address||r.addressHi); if(!d) return;
       d.due.push({date, amt:tvN(r.total), cut:!!r.cancelled, rno:String(r.no||''), ts:r.ts||'',
         rdate:r.dateStr||date, items:(r.items||[]).map(x=>`${x.name} ${x.qty}`).join(', '), final:true});
     });
+  });
+
+  /* --- Manual Debtor / Creditor entries --- */
+  tvArr(TV_MAN).forEach(p=>{
+    const map = p.kind==='deb' ? deb : cred;
+    const o = C(map, p.name, p.address); if(!o) return;
+    if(p.mob && !tvMob(o.key)) tvSetMob(o.key, p.mob);
+    if(tvN(p.due)>0)  o.due .push({date:p.date||tvToday(), amt:tvN(p.due),  final:true, manual:true, ts:p.ts||'', label:p.note||'Manual'});
+    if(tvN(p.paid)>0) o.paid.push({date:p.date||tvToday(), amt:tvN(p.paid), manual:true, ts:p.ts||'', mode:p.mode||'Cash'});
+    o.manual=true;
   });
 
   const finish = (map)=>Object.values(map).map(o=>{
@@ -163,12 +175,12 @@ const TV_TITLES = {
   other:'🟦 OTHER', kbora:'🧺 KALI BORA (Cr)', staff:'👷 STAFF (Cr)',
   daal:'🥣 DAAL (Cr)', roast:'🔥 ROAST (Cr)', profile:'👤 PROFILE',
   mk:'🏭 MILL खर्च', mkprod:'📦 PRODUCT', mkgadi:'🚐 गाडी', mkmm:'🔧 MILL MAINTENANCE',
-  mkveh:'🚗 गाडी', mkplant:'🏭 PLANT', mkoffice:'🏢 OFFICE'
+  mkveh:'🚗 गाडी', mkplant:'🏭 PLANT', mkoffice:'🏢 OFFICE', mkitem:'📦 ITEM'
 };
 function tvBack(){
   const b={cd:'root',cred:'cd',deb:'cd',other:'cd',kbora:'other',staff:'other',daal:'other',roast:'other',
-    mk:'root',mkprod:'mk',mkgadi:'mk',mkmm:'mk',mkveh:'mkgadi',mkplant:'mkmm',mkoffice:'mkmm'};
-  if(TVS.view==='profile'){ TVS.view=TVS.from||'cred'; TVS.profile=null; }
+    mk:'root',mkprod:'mk',mkgadi:'mk',mkmm:'mk',mkveh:'mkgadi',mkplant:'mkmm',mkoffice:'mkmm',mkitem:'mkprod'};
+  if(TVS.view==='profile'){ TVS.view=TVS.from||'cred'; TVS.profile=null; TVS.payMode=null; }
   else if(TVS.view==='root'){ go('home'); return; }
   else TVS.view = b[TVS.view]||'root';
   TVS.q=''; TVS.area=''; tvRender();
@@ -177,10 +189,11 @@ function tvBack(){
 /* =========================================================
    RENDER
 ========================================================= */
-function tvHead(title,extra){
+function tvHead(title,extra,addBtn){
   return `<div class="tvhead">
     <button class="tvbtn back" id="tv-back">← Back</button>
     <div class="tvtitle" id="tv-title">${title}</div>
+    ${addBtn||''}
     <button class="tvbtn print" id="tv-print">🖨️ Print</button>
   </div>${extra||''}`;
 }
@@ -199,6 +212,7 @@ function tvRender(){
   else if(V==='mk')     html=tvMK();
   else if(V==='mkprod') html=tvMKProd();
   else if(V==='mkgadi') html=tvMKGadi();
+  else if(V==='mkitem') html=tvMKItem();
   else if(V==='mkveh')  html=tvMKVeh();
   else if(V==='mkmm')   html=tvMKMaint();
   else if(V==='mkplant'||V==='mkoffice') html=tvMKPlace(V);
@@ -220,6 +234,10 @@ function tvWire(el){
   el.querySelectorAll('[data-area]').forEach(x=>x.addEventListener('click',()=>{ TVS.area=x.dataset.area; tvRenderRowsOnly(); }));
   el.querySelectorAll('[data-open]').forEach(x=>tvRowTaps(x));
   el.querySelectorAll('[data-mkitem]').forEach(x=>x.addEventListener('click',()=>tvMKEntry(x.dataset.mkitem,x.dataset.mkkind||'product')));
+  el.querySelectorAll('[data-mkopen]').forEach(x=>x.addEventListener('click',()=>{ TVS.mkitem=x.dataset.mkopen; TVS.view='mkitem'; tvRender(); }));
+  const ma=el.querySelector('#tv-addparty'); if(ma) ma.addEventListener('click',()=>tvManualParty(TVS.view==='deb'?'deb':'cred'));
+  const pb=el.querySelector('#tv-paidmode'); if(pb) tvPaidModeTaps(pb);
+  el.querySelectorAll('[data-pay]').forEach(x=>x.addEventListener('click',()=>tvPayEntry(x.dataset.pay)));
   el.querySelectorAll('[data-veh]').forEach(x=>x.addEventListener('click',()=>{ TVS.veh=x.dataset.veh; TVS.view='mkveh'; tvRender(); }));
   el.querySelectorAll('[data-scred]').forEach(x=>x.addEventListener('click',e=>{ e.stopPropagation(); tvStaffCredit(x.dataset.scred); }));
 }
@@ -298,7 +316,8 @@ function tvList(kind){
     <div class="tvsearch"><span>🔍</span><input id="tv-search" placeholder="नाम लिखें — कुछ अक्षर काफ़ी हैं..."></div>
     <div class="tvchips">${chips}</div>
     <div class="tvsum"><div><small>कुल ${kind==='cred'?'देना':'लेना'}</small><b>₹${tvF(tot)}</b></div><div><small>Party</small><b>${arr.length}</b></div></div>
-    <div class="tvcolh"><span class="cn">Sr · नाम (पता)</span><span class="cd">Due</span><span class="cp">Paid</span></div>`)
+    <div class="tvcolh"><span class="cn">Sr · नाम (पता)</span><span class="cd">Due</span><span class="cp">Paid</span></div>`,
+    `<button class="tvbtn add" id="tv-addparty">➕ नया ${kind==='cred'?'Creditor':'Debtor'}</button>`)
     +`<div id="tv-rows">${tvRowsHTML()}</div>`;
 }
 function tvFiltered(){
@@ -368,11 +387,16 @@ function tvProfile(){
       <div class="pfa g">₹${tvF(d.amt)}</div>
       <div class="pfs"><span class="dt">📅 ${tvE(d.date)}</span>${d.ts?`<span class="tm">🕐 ${tvE(d.ts)}</span>`:''}${d.mode?`<span class="lb">${tvE(d.mode)}</span>`:''}${d.item?`<span class="lb">${tvE(d.item)}</span>`:''}${d.cut?'<span class="ct">✂ CUT</span>':''}</div>
     </div>`).join('') : `<div class="pfe">— कुछ नहीं —</div>`;
+  const payOn = TVS.payMode===key;
   return `<div class="tvhead">
       <button class="tvbtn back" id="tv-back">← Back</button>
       <div class="tvtitle pf"><b>${tvE(p.name)}</b>${p.address?`<i>(${tvE(p.address)})</i>`:''}<span class="pfmob">mob- ${tvE(p.mob||'—')}</span></div>
+      ${kind!=='staff'?`<button class="tvbtn ${payOn?'paidon':'paid'}" id="tv-paidmode">${payOn?'🔓 PAID':'💵 PAID'}</button>`:''}
       <button class="tvbtn print" id="tv-print">🖨️ Print</button>
     </div>
+    ${payOn?`<div class="tvpaybar">🔓 Paid mode ON — सिर्फ़ <b>${tvE(p.name)}</b> के लिए
+      <button class="pb g" data-pay="${tvE(key)}">💵 Paid entry</button>
+      <button class="pb o" onclick="tvDueChange('${tvE(key).replace(/'/g,"")}')">✏️ Due बदलें</button></div>`:''}
     <div class="pfsum"><div class="r"><small>Total Due</small><b>₹${tvF(p.dueT!==undefined?p.dueT:0)}</b></div>
       <div class="g"><small>Total Paid</small><b>₹${tvF(p.paidT||0)}</b></div>
       <div class="${p.bal>0?'r':'g'}"><small>Balance</small><b>₹${tvF(Math.abs(p.bal))}</b></div></div>
@@ -382,6 +406,131 @@ function tvProfile(){
       <div class="pfcol"><div class="pfh g">✅ PAID</div>${paidHTML}</div>
     </div>`;
 }
+
+/* =========================================================
+   ➕ MANUAL Debtor / Creditor entry
+========================================================= */
+function tvManualParty(kind){
+  popup({ title:(kind==='deb'?'🟩 नया Debtor':'🟥 नया Creditor')+' — Manual entry',
+    body:`<div class="pp-note">नाम · पता · मोबाइल भरें — <b>Due</b> या <b>Paid</b> में से जो भरना हो भरें (time stamp अपने आप 🕐)</div>
+      <div class="f-row"><label>नाम</label><input type="text" id="tv-mn" autocomplete="off"></div>
+      <div class="f-row"><label>पता</label><input type="text" id="tv-ma"></div>
+      <div class="f-row"><label>Mobile</label><input type="tel" id="tv-mm" inputmode="numeric" maxlength="12"></div>
+      <div class="f-row"><label>Due ₹ (${kind==='deb'?'लेना':'देना'})</label><input type="number" id="tv-md" inputmode="decimal" placeholder="0"></div>
+      <div class="f-row"><label>Paid ₹ (${kind==='deb'?'मिला':'दिया'})</label><input type="number" id="tv-mp" inputmode="decimal" placeholder="0"></div>
+      <div class="f-row"><label>नोट</label><input type="text" id="tv-mno" placeholder="(optional)"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-ms">✓ Save</button></div>`,
+    onOpen(bk){
+      const nm=bk.querySelector('#tv-mn'); nm.focus();
+      if(typeof sgSuggest==='function') sgSuggest(nm, bk.querySelector('#tv-ma'));
+      bk.querySelector('#tv-ms').addEventListener('click',()=>{
+        const name=nm.value.trim(); if(!name){ toast('नाम भरें'); return; }
+        const rec={kind, name, address:bk.querySelector('#tv-ma').value.trim(), mob:bk.querySelector('#tv-mm').value.trim(),
+          due:tvN(bk.querySelector('#tv-md').value), paid:tvN(bk.querySelector('#tv-mp').value),
+          note:bk.querySelector('#tv-mno').value.trim(), date:tvToday(), ts:tvNowTS(), t:Date.now()};
+        const all=tvArr(TV_MAN); all.push(rec); tvSet(TV_MAN,all);
+        if(rec.mob) tvSetMob(tvK(name), rec.mob);
+        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors':'Creditors'), what:'Manual party add', name, neu:(rec.due||rec.paid), note:rec.address});
+        closePopup(); tvRefresh(); tvRender(); toast('✔ '+name+' add हो गया');
+      });
+    }
+  });
+}
+
+/* =========================================================
+   💵 PAID MODE — profile में PAID पर 3 बार click → password
+   password = customer के नाम का पहला अक्षर (small/CAPITAL) + अभी का घंटा
+========================================================= */
+function tvPaidModeTaps(el){
+  let n=0,tm=null;
+  el.addEventListener('click',()=>{
+    n++; clearTimeout(tm);
+    tm=setTimeout(()=>{ if(n>=3) tvPaidUnlock(); n=0; },420);
+  });
+}
+function tvPaidUnlock(){
+  const {key,kind}=TVS.profile||{}; if(!key) return;
+  const D=tvBuild();
+  const p=(kind==='staff'?D.staff:kind==='deb'?D.deb:D.cred).find(x=>x.key===key); if(!p) return;
+  const first=String(p.name||'').trim().charAt(0);
+  const hr=new Date().getHours(); const hr12=((hr%12)||12);
+  popup({ title:'🔐 Paid Mode — Password',
+    body:`<div class="pp-note">सिर्फ़ <b>${tvE(p.name)}</b> के लिए Paid mode खुलेगा · Back करते ही अपने आप बंद 🔒<br>
+        <small>Password = नाम का पहला अक्षर + अभी का घंटा</small></div>
+      <div class="f-row"><label>Password</label><input type="text" id="tv-pw" autocomplete="off" placeholder="—"></div>
+      <div id="tv-pwe" style="display:none;color:#c0392b;font-weight:800;font-size:13px;margin-top:4px;"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-pwg">🔓 Open</button></div>`,
+    onOpen(bk){
+      const i=bk.querySelector('#tv-pw'); i.focus();
+      const go=()=>{
+        const v=String(i.value||'').trim();
+        const ok=[first.toLowerCase(),first.toUpperCase()].some(c=>v===c+String(hr12)||v===c+String(hr)||v===c+String(hr).padStart(2,'0')||v===c+String(hr12).padStart(2,'0'));
+        if(!ok){ const e=bk.querySelector('#tv-pwe'); e.style.display='block'; e.textContent='❌ ग़लत password'; return; }
+        TVS.payMode=key; closePopup(); tvRender(); toast('🔓 Paid mode ON — '+p.name);
+      };
+      bk.querySelector('#tv-pwg').addEventListener('click',go);
+      i.addEventListener('keydown',ev=>{ if(ev.key==='Enter') go(); });
+    }
+  });
+}
+/* Paid entry → notebook: Debtor = जमा नाम खाते · Creditor = नगद नाम खाते */
+function tvPayEntry(key){
+  const kind=(TVS.profile||{}).kind||'cred';
+  const D=tvBuild();
+  const p=(kind==='staff'?D.staff:kind==='deb'?D.deb:D.cred).find(x=>x.key===key); if(!p) return;
+  const toWhere = kind==='deb' ? 'जमा नाम खाते' : 'नगद नाम खाते';
+  popup({ title:'💵 '+tvE(p.name)+' — Paid',
+    body:`<div class="pp-note">भरते ही सीधे notebook के <b>${toWhere}</b> में चला जाएगा 🪄<br>
+        बाक़ी अभी: <b class="rr">₹${tvF(Math.max(0,p.bal))}</b></div>
+      <div class="f-row"><label>Amount ₹</label><input type="number" id="tv-pa" inputmode="decimal" placeholder="0"></div>
+      ${kind==='deb'?`<div class="f-row"><label>Mode</label><select id="tv-pm"><option value="cash">💵 Cash</option><option value="online">🏦 A/C</option></select></div>`:''}
+      <div class="f-row"><label>नोट</label><input type="text" id="tv-pn" placeholder="(optional)"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-ps">✓ Paid</button></div>`,
+    onOpen(bk){
+      const a=bk.querySelector('#tv-pa'); a.focus();
+      bk.querySelector('#tv-ps').addEventListener('click',()=>{
+        const amt=tvN(a.value); if(amt<=0){ toast('Amount भरें'); return; }
+        const note=bk.querySelector('#tv-pn').value.trim();
+        if(kind==='deb'){
+          const md=bk.querySelector('#tv-pm').value;
+          tvPushNB('jama',{name:p.name,address:p.address||'',amount:amt,online:md==='online'?amt:0,item:note});
+        }else{
+          tvPushNB('nagad',{name:p.name,address:p.address||'',amount:amt,mode:'cash',item:note,serialRef:null});
+        }
+        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors → जमा नाम खाते':'Creditors → नगद नाम खाते'),
+          what:'Paid', name:p.name, old:Math.max(0,p.bal), neu:amt, note:note});
+        closePopup(); tvRefresh(); tvRender(); toast('✔ '+toWhere+' में ₹'+tvF(amt)+' गया');
+      });
+    }
+  });
+}
+/* Due बदलना (manual adjust) — record book के change log में save */
+function tvDueChange(key){
+  const kind=(TVS.profile||{}).kind||'cred';
+  const D=tvBuild(); const p=(kind==='deb'?D.deb:D.cred).find(x=>x.key===key); if(!p) return;
+  popup({ title:'✏️ '+tvE(p.name)+' — Due बदलें',
+    body:`<div class="pp-note">अभी Due: <b>₹${tvF(Math.max(0,p.bal))}</b> — नया Due भरें (फ़र्क़ manual entry बन जाएगा और <b>Change Record</b> में save होगा)</div>
+      <div class="f-row"><label>नया Due ₹</label><input type="number" id="tv-dc" inputmode="decimal" value="${Math.max(0,Math.round(p.bal))}"></div>
+      <div class="f-row"><label>कारण</label><input type="text" id="tv-dr" placeholder="जैसे rate गलत था"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-dcs">✓ Save</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#tv-dc').focus();
+      bk.querySelector('#tv-dcs').addEventListener('click',()=>{
+        const nw=tvN(bk.querySelector('#tv-dc').value), old=Math.max(0,p.bal);
+        const diff=nw-old; if(Math.abs(diff)<0.01){ toast('कोई बदलाव नहीं'); return; }
+        const reason=bk.querySelector('#tv-dr').value.trim();
+        const all=tvArr(TV_MAN);
+        all.push({kind:(kind==='deb'?'deb':'cred'), name:p.name, address:p.address||'', mob:p.mob||'',
+          due: diff>0? diff:0, paid: diff<0? -diff:0, note:'Due बदला — '+(reason||'manual'),
+          date:tvToday(), ts:tvNowTS(), t:Date.now(), adj:true});
+        tvSet(TV_MAN,all);
+        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors':'Creditors'), what:'Due बदला', name:p.name, old, neu:nw, note:reason});
+        closePopup(); tvRefresh(); tvRender(); toast('✔ Due update — Change Record में save');
+      });
+    }
+  });
+}
+window.tvDueChange=tvDueChange;
 
 /* ---------- OTHER ---------- */
 function tvOther(){
@@ -498,57 +647,97 @@ function tvPushKharch(name,amount,extra){ tvPushNB('kharch',Object.assign({type:
 function tvKharchAll(){
   const out=[];
   tvDates('sg_nb_').forEach(date=>{ const db=tvNB(date); if(!db) return;
-    (db.kharch||[]).forEach(x=>{ if(!x.cut) out.push(Object.assign({date},x)); }); });
+    (db.kharch||[]).forEach((x,i)=>{ if(!x.cut) out.push(Object.assign({date,idx:i},x)); }); });
   return out;
 }
+/* notebook की हर नगद खर्च entry किस PRODUCT category में जाएगी */
+const TV_PROD_FIX = ['Loading','Unloading','भाड़ा (Bhara)','Overtime','बिजली बिल','गाडी खर्च (Daily)','Labour','Mill खर्च'];
+function tvProdCat(x){
+  if(x.mkCat) return x.mkCat;
+  if(x.type==='labour') return 'Labour';
+  if(x.type==='van' || x.mk==='gadi'){ return x.mkSub==='fuel' ? '' : 'गाडी खर्च (Daily)'; }  /* fuel सिर्फ़ गाडी में */
+  if(x.mk==='plant'||x.mk==='office') return '';                                              /* Maintenance में */
+  if(x.type==='erik') return 'E-Rikshaw';
+  if(x.type==='pending') return 'Advance';
+  const nm=String(x.name||'').trim();
+  const hit=tvProducts().find(p=>tvK(p)===tvK(nm));
+  if(hit) return hit;
+  if(/loading|लोडिंग|लोडींग/i.test(nm)) return 'Loading';
+  if(/unload|अनलोड/i.test(nm)) return 'Unloading';
+  if(/भाड़ा|bhara|bhada/i.test(nm)) return 'भाड़ा (Bhara)';
+  if(/overtime|ओवरटाइम/i.test(nm)) return 'Overtime';
+  if(/बिजली|electric|light bill/i.test(nm)) return 'बिजली बिल';
+  return 'Mill खर्च';
+}
+/* सारे product items — fix + custom + data में मिले नये */
+function tvProdItems(){
+  const list=TV_PROD_FIX.slice();
+  tvProducts().forEach(p=>{ if(!list.includes(p)) list.push(p); });
+  tvKharchAll().forEach(x=>{ const c=tvProdCat(x); if(c && !list.includes(c)) list.push(c); });
+  return list;
+}
+function tvProdEntries(item){
+  return tvKharchAll().filter(x=>tvProdCat(x)===item).sort((a,b)=>tvDV(b.date)-tvDV(a.date));
+}
+const TV_PROD_ICON = {'Loading':'🏋️','Unloading':'📤','भाड़ा (Bhara)':'🚚','Overtime':'⏱️','बिजली बिल':'💡',
+  'गाडी खर्च (Daily)':'🚐','Labour':'👷','Mill खर्च':'🏭','E-Rikshaw':'🛵','Advance':'⏳'};
+
 function tvMK(){
   const K=tvKharchAll();
-  const pT=K.filter(x=>x.mk==='product'||x.type==='mill').reduce((a,x)=>a+tvN(x.amount),0);
-  const gT=K.filter(x=>x.type==='van'||x.mk==='gadi').reduce((a,x)=>a+tvN(x.amount),0);
+  const pT=K.filter(x=>tvProdCat(x)).reduce((a,x)=>a+tvN(x.amount),0);
+  const gT=K.filter(x=>(x.type==='van'||x.mk==='gadi') && x.mkSub==='fuel').reduce((a,x)=>a+tvN(x.amount),0);
   const mT=K.filter(x=>x.mk==='plant'||x.mk==='office').reduce((a,x)=>a+tvN(x.amount),0);
   return tvHead(TV_TITLES.mk)+`
   <div class="tv2">
     <button class="tvbig pr" data-tvgo="mkprod"><span class="bi">📦</span><b>Product</b><small>₹${tvF(pT)} · Loading/बिजली...</small></button>
-    <button class="tvbig ga" data-tvgo="mkgadi"><span class="bi">🚐</span><b>गाडी</b><small>₹${tvF(gT)} · Fuel + Maintenance</small></button>
+    <button class="tvbig ga" data-tvgo="mkgadi"><span class="bi">🚐</span><b>गाडी</b><small>₹${tvF(gT)} · सिर्फ़ Fuel</small></button>
     <button class="tvbig mm" data-tvgo="mkmm"><span class="bi">🔧</span><b>Mill Maintenance</b><small>₹${tvF(mT)} · Plant / Office</small></button>
   </div>`;
 }
 function tvMKProd(){
-  const items=tvProducts(); const K=tvKharchAll();
-  const sumOf=n=>K.filter(x=>tvK(x.name)===tvK(n)).reduce((a,x)=>a+tvN(x.amount),0);
+  const items=tvProdItems();
   let grand=0;
-  const cards=items.map((n,i)=>{ const s=sumOf(n); grand+=s;
-    return `<button class="mkc c${i%8}" data-mkitem="${tvE(n)}" data-mkkind="product"><span class="mki">${['🏋️','📤','🚚','⏱️','💡','🧰','📦','🔩'][i%8]}</span><b>${tvE(n)}</b><i>₹${tvF(s)}</i></button>`;
+  const cards=items.map((n,i)=>{ const e=tvProdEntries(n); const s=e.reduce((a,x)=>a+tvN(x.amount),0); grand+=s;
+    return `<button class="mkc c${i%8}" data-mkopen="${tvE(n)}"><span class="mki">${TV_PROD_ICON[n]||['🏋️','📤','🚚','⏱️','💡','🧰','📦','🔩'][i%8]}</span><b>${tvE(n)}</b><i>₹${tvF(s)}</i><u>${e.length?e.length+' entry':'खाली'}</u></button>`;
   }).join('');
-  return tvHead(TV_TITLES.mkprod,`<div class="pp-note tvnote">🖱️ ऊपर <b>PRODUCT</b> title पर <b>3 बार</b> click → नया item add · किसी box पर click → अमाउंट भरें (नगद खर्च में अपने आप जाएगा)</div>`)
+  return tvHead(TV_TITLES.mkprod,`<div class="pp-note tvnote">🖱️ ऊपर <b>PRODUCT</b> title पर <b>3 बार</b> click → नया item add · किसी box पर click → उसका <b>पूरा profile</b> खुलेगा (हर entry date + time के साथ)</div>`,
+    `<button class="tvbtn add" id="tv-addnew" data-mkitem="Mill खर्च" data-mkkind="product">➕ नयी entry</button>`)
     +`<div class="mkgrid" id="tv-rows">${cards}</div>
       <div class="tvgt">Product कुल खर्च <b>₹${tvF(grand)}</b></div>`;
+}
+/* किसी भी product item का पूरा profile */
+function tvMKItem(){
+  const item=TVS.mkitem||'';
+  const list=tvProdEntries(item);
+  const tot=list.reduce((a,x)=>a+tvN(x.amount),0);
+  const rows=list.length? list.map((x,i)=>`<div class="pfl">
+      <div class="pfa">₹${tvF(x.amount)}</div>
+      <div class="pfs"><span class="dt">📅 ${tvE(x.date)}</span>${x.ts?`<span class="tm">🕐 ${tvE(x.ts)}</span>`:''}
+        <span class="lb">${tvE(x.name||item)}</span>${x.driver?`<span class="lb">${tvE(x.driver)}</span>`:''}${x.vehNo?`<span class="lb">${tvE(x.vehNo)}</span>`:''}${x.fromTally?'<span class="lb">Tally</span>':'<span class="lb">Notebook</span>'}</div>
+    </div>`).join('') : `<div class="pfe">— अभी कोई entry नहीं —</div>`;
+  return tvHead(`${TV_PROD_ICON[item]||'📦'} ${tvE(item)}`,
+    `<div class="pfsum"><div class="r"><small>कुल खर्च</small><b>₹${tvF(tot)}</b></div><div class="g"><small>Entry</small><b>${list.length}</b></div></div>`,
+    `<button class="tvbtn add" data-mkitem="${tvE(item)}" data-mkkind="product">➕ नयी entry</button>`)
+    +`<div id="tv-rows">${rows}</div>`;
 }
 function tvMKGadi(){
   const K=tvKharchAll();
   const cards=TV_VEHICLES.map(v=>{
     const f=K.filter(x=>x.vehNo===v.no && x.mkSub==='fuel').reduce((a,x)=>a+tvN(x.amount),0);
-    const m=K.filter(x=>x.vehNo===v.no && x.mkSub==='maint').reduce((a,x)=>a+tvN(x.amount),0);
     return `<button class="vehc" style="--vc:${v.col}" data-veh="${v.no}">
       <span class="vi">${v.icon}</span><b>${v.no}</b><i>${v.label}</i>
-      <div class="vsum"><span class="f">⛽ ₹${tvF(f)}</span><span class="m">🔧 ₹${tvF(m)}</span></div></button>`;
+      <div class="vsum"><span class="f">⛽ ₹${tvF(f)}</span></div></button>`;
   }).join('');
-  return tvHead(TV_TITLES.mkgadi,`<div class="pp-note tvnote">Notebook के <b>नगद खर्च → वेन → ⛽ Fuel</b> से भी यही data जुड़ता है</div>`)
+  return tvHead(TV_TITLES.mkgadi,`<div class="pp-note tvnote">यहाँ notebook के <b>नगद खर्च → वेन → ⛽ Fuel</b> वाला ही data आता है · गाड़ी खर्च (Daily) <b>Product</b> में है</div>`)
     +`<div class="vehgrid" id="tv-rows">${cards}</div>`;
 }
 function tvMKVeh(){
   const v=TV_VEHICLES.find(x=>x.no===TVS.veh)||TV_VEHICLES[0];
-  const K=tvKharchAll().filter(x=>x.vehNo===v.no);
-  const fuel=K.filter(x=>x.mkSub==='fuel'), maint=K.filter(x=>x.mkSub!=='fuel');
+  const fuel=tvKharchAll().filter(x=>x.vehNo===v.no && x.mkSub==='fuel').sort((a,b)=>tvDV(b.date)-tvDV(a.date));
   const li=a=>a.length? a.map(x=>`<div class="pfl"><div class="pfa">₹${tvF(x.amount)}</div><div class="pfs"><span class="dt">📅 ${tvE(x.date)}</span>${x.ts?`<span class="tm">🕐 ${tvE(x.ts)}</span>`:''}${x.driver?`<span class="lb">${tvE(x.driver)}</span>`:''}${x.note?`<span class="lb">${tvE(x.note)}</span>`:''}</div></div>`).join('') : `<div class="pfe">— कुछ नहीं —</div>`;
-  return tvHead(`${v.icon} ${v.no}`,`<div class="vehbar" style="--vc:${v.col}">${v.label}
-      <div class="vbtns"><button class="vb f" data-mkitem="${v.no}" data-mkkind="fuel">⛽ Fuel भरें</button>
-      <button class="vb m" data-mkitem="${v.no}" data-mkkind="maint">🔧 Maintenance</button></div></div>`)
-    +`<div class="pfgrid" id="tv-rows">
-      <div class="pfcol"><div class="pfh b">⛽ FUEL — ₹${tvF(fuel.reduce((a,x)=>a+tvN(x.amount),0))}</div>${li(fuel)}</div>
-      <div class="pfline"></div>
-      <div class="pfcol"><div class="pfh o">🔧 MAINTENANCE — ₹${tvF(maint.reduce((a,x)=>a+tvN(x.amount),0))}</div>${li(maint)}</div>
-    </div>`;
+  return tvHead(`${v.icon} ${v.no}`,`<div class="vehbar" style="--vc:${v.col}">${v.label} — ⛽ कुल ₹${tvF(fuel.reduce((a,x)=>a+tvN(x.amount),0))}</div>`,
+    `<button class="tvbtn add" data-mkitem="${v.no}" data-mkkind="fuel">⛽ Fuel भरें</button>`)
+    +`<div id="tv-rows">${li(fuel)}</div>`;
 }
 function tvMKMaint(){
   const K=tvKharchAll();
@@ -566,7 +755,7 @@ function tvMKPlace(v){
   const rows=K.length? K.slice().reverse().map((x,i)=>`<div class="tvrow"><div class="tvsr">${i+1}</div>
       <div class="tvnm"><b>${tvE(x.name)}</b><span class="tvmb">📅 ${tvE(x.date)} ${x.ts?'· 🕐 '+tvE(x.ts):''}</span></div>
       <div class="tvdue">₹${tvF(x.amount)}</div><div class="tvpaid">—</div></div>`).join('') : `<div class="tvempty">— कोई खर्च नहीं —</div>`;
-  return tvHead(TV_TITLES[v],`<button class="tvadd" data-mkitem="${kind}" data-mkkind="place">➕ नया ${kind==='plant'?'Plant':'Office'} खर्च</button>`)
+  return tvHead(TV_TITLES[v],'',`<button class="tvbtn add" data-mkitem="${kind}" data-mkkind="place">➕ नया ${kind==='plant'?'Plant':'Office'} खर्च</button>`)
     +`<div id="tv-rows">${rows}</div><div class="tvgt">${kind==='plant'?'Plant':'Office'} कुल <b>₹${tvF(tot)}</b></div>`;
 }
 /* अमाउंट भरने का popup — सब जगह एक ही */
@@ -576,10 +765,10 @@ function tvMKEntry(item,kind){
   const v = isVeh? TV_VEHICLES.find(x=>x.no===item) : null;
   const title = isVeh ? `${v.icon} ${item} — ${kind==='fuel'?'⛽ Fuel':'🔧 Maintenance'}`
               : isPlace ? `${item==='plant'?'🏭 Plant':'🏢 Office'} खर्च`
-              : `📦 ${item} — अमाउंट`;
+              : `${TV_PROD_ICON[item]||'📦'} ${item} — अमाउंट`;
   popup({ title,
-    body:`<div class="pp-note">भरते ही यह <b>नगद खर्च → Mill खर्च</b> (notebook) और <b>S.Book</b> में अपने आप चला जाएगा</div>
-      ${isPlace||isVeh?`<div class="f-row"><label>${isVeh?'नोट / Driver':'खर्च का नाम'}</label><input type="text" id="tv-mkn" placeholder="${isVeh?'(optional)':'जैसे मोटर रिपेयर'}"></div>`:''}
+    body:`<div class="pp-note">भरते ही यह <b>नगद खर्च</b> (notebook) और <b>S.Book</b> में अपने आप चला जाएगा</div>
+      <div class="f-row"><label>${isVeh?'नोट / Driver':'खर्च का नाम'}</label><input type="text" id="tv-mkn" placeholder="${isVeh?'(optional)':(isPlace?'जैसे मोटर रिपेयर':'(optional) — '+item)}"></div>
       <div class="f-row"><label>अमाउंट ₹</label><input type="number" id="tv-mka" inputmode="decimal" placeholder="0"></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-mks">✓ Save</button></div>`,
     onOpen(bk){
@@ -594,8 +783,9 @@ function tvMKEntry(item,kind){
           if(!note){ toast('खर्च का नाम भरें'); return; }
           tvPushKharch(`${item==='plant'?'Plant':'Office'} — ${note}`, amt, {mk:item, mkSub:'maint'});
         }else{
-          tvPushKharch(item, amt, {mk:'product'});
+          tvPushKharch(note? `${item} — ${note}` : item, amt, {mk:'product', mkCat:item});
         }
+        if(typeof logChange==='function') logChange({sec:'नगद खर्च', what:'नयी entry (Tally)', name:item, neu:amt, note:note});
         closePopup(); tvRefresh(); tvRender(); toast('✔ नगद खर्च में जुड़ गया');
       });
     }

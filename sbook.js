@@ -38,9 +38,9 @@ function sbRate(amt,qty){ if(!qty) return ''; const r=sbNum(amt)/qty; return (Ma
 /* item का छोटा नाम — जैसे notebook में */
 function sbItemLabel(item,sub){
   let s=sub||'';
-  if(s==='गोल्ड') s='ग.';
+  if(s==='गोल्ड') s='Gold';
   if(s==='चोकर'||s===item) s='';
-  const it = item==='आटा'?'ATTA' : item==='सत्तू'?'SATTU' : item==='बेसन'?'BESAN' : item==='चोकर'?'CHOKAR' : item;
+  const it = item==='आटा'?'Atta' : item==='सत्तू'?'SATTU' : item==='बेसन'?'BESAN' : item==='चोकर'?'CHOKAR' : item;
   return (it+' '+s).trim();
 }
 
