@@ -294,3 +294,166 @@ Notebook के **नगद खर्च → 🚐 वेन** में अब `
 Van चुनने पर गाड़ी नंबर का **dropdown**, Bike चुनने पर bike नंबर अपने आप 🪄
 
 **Attendance** में नया नाम add करते ही उसके आगे **(mill staff)** अपने आप लग जाता है।
+
+---
+
+# 🐘 PostgreSQL Database Sync
+
+अब जो कुछ भी **localStorage में save होता है, वही बिलकुल वैसा ही PostgreSQL में भी save होता है**।
+
+### कैसे काम करता है
+| step | क्या होता है |
+|---|---|
+| 1️⃣ page खुलते ही | `/api/sync?full=1` से पूरा data आता है और localStorage में भर जाता है |
+| 2️⃣ कोई भी entry save | `localStorage.setItem` wrap है → change queue में → `/api/sync` POST → Postgres |
+| 3️⃣ net बंद | queue localStorage में पड़ी रहती है, net आते ही अपने आप चली जाती है |
+| 4️⃣ हर 20 सेकंड | server से नया data pull (दूसरे device/tab का बदलाव भी दिख जाता है) |
+| 5️⃣ tab बंद करते वक़्त | `sendBeacon` से बची हुई queue भेज दी जाती है |
+
+**सिर्फ़ `sg_` से शुरू होने वाली keys sync होती हैं** — `sg_nb_*`, `sg_att_*`, `sg_arcpt_*`, `sg_wrcpt_*`, `sg_ord_*`, `sg_sb_*`, `sg_staff`, `sg_rates`, `sg_mobiles`, `sg_changelog`, `sg_carry`, `sg_tv_manual`, `sg_wheat_cut` — सब कुछ।
+
+नीचे बाएँ कोने में छोटा सा **dot** है:
+🟢 database से जुड़ा · 🟡 save हो रहा · 🔴 save नहीं हुआ · ⚪ database से नहीं जुड़ा
+(print में यह dot नहीं छपता)
+
+### Files
+| file | काम |
+|---|---|
+| `sg-sync.js` | browser side — localStorage ⇄ API |
+| `functions/api/sync.js` | Cloudflare Pages Function — API ⇄ Postgres |
+| `schema.sql` | Postgres table — Adminer में paste करने के लिए |
+| `package.json` | `pg` driver |
+| `wrangler.toml` | `nodejs_compat` flag (pg चलाने के लिए ज़रूरी) |
+
+---
+
+## 🔑 Step 1 — PostgreSQL में table बनाएँ
+
+Adminer खोलें → बाएँ तरफ़ **SQL command** पर click → नीचे वाला पूरा text paste करें → **Execute**
+(यही text `schema.sql` file में भी है)
+
+```sql
+CREATE TABLE IF NOT EXISTS sg_store (
+    key        TEXT PRIMARY KEY,
+    value      JSONB       NOT NULL,
+    updated_at BIGINT      NOT NULL DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT,
+    synced_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sg_store_updated_at_idx ON sg_store (updated_at);
+CREATE INDEX IF NOT EXISTS sg_store_synced_at_idx  ON sg_store (synced_at);
+
+CREATE OR REPLACE FUNCTION sg_touch_synced_at() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.synced_at := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS sg_store_touch ON sg_store;
+CREATE TRIGGER sg_store_touch
+    BEFORE UPDATE ON sg_store
+    FOR EACH ROW EXECUTE FUNCTION sg_touch_synced_at();
+```
+
+Execute के बाद बाएँ list में **`sg_store`** table दिखने लगेगा ✔
+
+---
+
+## 🔐 Step 2 — Cloudflare में Postgres का password कहाँ डालें
+
+Password **code में कहीं नहीं लिखना** — Cloudflare के **Secret** में डालना है।
+
+```
+Cloudflare Dashboard
+  → Workers & Pages
+  → अपना Pages project (जो GitHub से जुड़ा है)
+  → Settings
+  → Variables and Secrets          ← यहाँ
+  → Add  →  Type: Secret
+      Variable name :  DATABASE_URL
+      Value         :  postgresql://postgres:आपका_PASSWORD@140.245.7.25:5432/postgres
+  → Save
+```
+
+⚠️ ज़रूरी बातें
+- यही variable **Production** और **Preview** दोनों environment में add करें
+- Type ज़रूर **Secret** चुनें (Plaintext नहीं) — तब password छुपा रहता है
+- Save करने के बाद **Deployments → latest → Retry deployment** ज़रूर करें, वरना नया secret पुराने build पर लागू नहीं होगा
+
+### DATABASE_URL का format
+```
+postgresql://<user>:<password>@<host>:<port>/<database>
+```
+आपके Adminer screen के हिसाब से:
+
+| हिस्सा | value |
+|---|---|
+| user | `postgres` |
+| password | आपका Postgres password |
+| host | `140.245.7.25` (server का IP / hostname) |
+| port | `5432` |
+| database | `postgres` |
+
+👉 उदाहरण
+```
+postgresql://postgres:MySecret%40123@140.245.7.25:5432/postgres
+```
+
+अगर password में `@ : / # ?` जैसे special character हैं तो उन्हें encode करें —
+`@` → `%40` · `:` → `%3A` · `/` → `%2F` · `#` → `%23` · `?` → `%3F`
+
+अगर server SSL माँगे तो आख़िर में जोड़ें: `?sslmode=require`
+```
+postgresql://postgres:PASSWORD@140.245.7.25:5432/postgres?sslmode=require
+```
+
+---
+
+## ⚙️ Step 3 — Cloudflare build settings
+
+Pages project → **Settings → Build & deployments**
+
+| field | value |
+|---|---|
+| Build command | `npm install` |
+| Build output directory | `/` (root) |
+| Root directory | `/` |
+
+**Settings → Functions → Compatibility flags** में `nodejs_compat` होना चाहिए
+(`wrangler.toml` में पहले से लिखा है, फिर भी dashboard में check कर लें)
+
+---
+
+## ✅ Step 4 — check करें
+
+1. site खोलें → कोई entry भरें
+2. Adminer में जाएँ → `sg_store` table → **select sg_store**
+3. `sg_nb_<आज की तारीख़>` row दिख जाएगी ✔
+
+Browser console में भी देख सकते हैं:
+```js
+sgSync.status()   // { pending: 0, cursor: 1755... }  → pending 0 = सब save हो गया
+sgSync.push()     // ज़बरदस्ती अभी भेजो
+sgSync.pull()     // ज़बरदस्ती अभी लाओ
+```
+
+API सीधे भी test कर सकते हैं: `https://आपकी-site/api/sync?full=1`
+
+---
+
+## 📊 Adminer में data देखने के काम की SQL
+
+```sql
+-- कौन सी key कब save हुई
+SELECT key, updated_at, synced_at FROM sg_store ORDER BY synced_at DESC;
+
+-- किसी एक दिन का पूरा notebook
+SELECT value FROM sg_store WHERE key = 'sg_nb_16-08-2026';
+
+-- सारी notebook dates
+SELECT key FROM sg_store WHERE key LIKE 'sg_nb_%' ORDER BY key;
+
+-- कुल कितनी row
+SELECT count(*) FROM sg_store;
+```

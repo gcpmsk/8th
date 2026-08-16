@@ -1,0 +1,9 @@
+{
+  "name": "satyam-gold",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SATYAM GOLD — Digital Notebook (Cloudflare Pages + PostgreSQL sync)",
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
