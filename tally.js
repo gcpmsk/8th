@@ -172,7 +172,7 @@ function tvRefresh(){ TV_CACHE=null; }
 let TVS = {view:'root', sub:'', chip:'all', q:'', area:'', profile:null, mobMode:false};
 const TV_TITLES = {
   root:'📊 TALLY VIEW', cd:'📒 C/D', cred:'🟥 CREDITORS', deb:'🟩 DEBTORS',
-  other:'🟦 OTHER', kbora:'🧺 KALI BORA (Cr)', staff:'👷 STAFF (Cr)',
+  other:'🟦 OTHER', kbora:'🧺 KHALI BORA (Cr)', staff:'👷 STAFF (Cr)',
   daal:'🥣 DAAL (Cr)', roast:'🔥 ROAST (Cr)', profile:'👤 PROFILE',
   mk:'🏭 MILL खर्च', mkprod:'📦 PRODUCT', mkgadi:'🚐 गाडी', mkmm:'🔧 MILL MAINTENANCE',
   mkveh:'🚗 गाडी', mkplant:'🏭 PLANT', mkoffice:'🏢 OFFICE', mkitem:'📦 ITEM'
@@ -539,7 +539,7 @@ function tvOther(){
   const stT=D.staff.reduce((a,x)=>a+Math.max(0,x.bal),0);
   return tvHead(TV_TITLES.other)+`
   <div class="tv2 four">
-    <button class="tvbig kb" data-tvgo="kbora"><span class="bi">🧺</span><b>कली बोरा (Cr)</b><small>₹${tvF(sum('bag'))}</small></button>
+    <button class="tvbig kb" data-tvgo="kbora"><span class="bi">🧺</span><b>खाली बोरा (Cr)</b><small>₹${tvF(sum('bag'))}</small></button>
     <button class="tvbig st" data-tvgo="staff"><span class="bi">👷</span><b>Staff (Cr)</b><small>₹${tvF(stT)} · monthly</small></button>
     <button class="tvbig dl" data-tvgo="daal"><span class="bi">🥣</span><b>Daal (Cr)</b><small>₹${tvF(sum('daal'))}</small></button>
     <button class="tvbig ro" data-tvgo="roast"><span class="bi">🔥</span><b>Roast (Cr)</b><small>₹${tvF(sum('roast'))}</small></button>

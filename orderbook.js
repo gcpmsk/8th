@@ -122,6 +122,71 @@ const oqs = v => { const n=oq(v); return (Math.round(n*100)/100).toString(); };
 function hasRate(it){ return oq(it.rate)>0; }
 function ordNeedRate(o){ return ordRemain(o).some(it=>!hasRate(it)); }
 
+/* ---------- date helpers (dd-mm-yyyy ⇄ yyyy-mm-dd) ---------- */
+function ordToISO(d){ const p=String(d||'').split('-'); return p.length===3? p[2]+'-'+p[1]+'-'+p[0] : ''; }
+function ordFromISO(s){ const p=String(s||'').split('-'); return p.length===3? p[2]+'-'+p[1]+'-'+p[0] : ''; }
+
+/* ---------- item grouping — base qty + बाद में जुड़ा (+qty(date)) ---------- */
+function groupItems(o){
+  const map={}, out=[];
+  ordRemain(o).forEach(it=>{
+    const k=it.name||'—';
+    if(!map[k]){ map[k]={name:k, base:0, rate:it.rate||'', note:it.note||'', adds:[]}; out.push(map[k]); }
+    const g=map[k];
+    if(!g.rate && it.rate) g.rate=it.rate;
+    if(it.d && it.d!==o.date) g.adds.push({qty:oq(it.qty), date:it.d});
+    else g.base+=oq(it.qty);
+  });
+  return out.sort((a,b)=>itemOrder(a.name)-itemOrder(b.name));
+}
+
+/* ---------- पुराने नाम/पते — auto suggest ---------- */
+function ordParties(){
+  const map={};
+  const add=(n,a,nh,ah)=>{ n=String(n||'').trim(); if(!n) return;
+    const k=n.toUpperCase().replace(/\s+/g,' ')+'|'+String(a||'').trim().toUpperCase();
+    if(!map[k]) map[k]={name:n,address:String(a||'').trim(),nameHi:String(nh||'').trim(),addressHi:String(ah||'').trim()};
+    else{ const m=map[k]; if(!m.nameHi&&nh) m.nameHi=String(nh).trim(); if(!m.addressHi&&ah) m.addressHi=String(ah).trim(); } };
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i); if(!k) continue;
+    try{
+      if(k.indexOf('sg_ord_')===0){ (JSON.parse(localStorage.getItem(k))||[]).forEach(o=>add(o.name,o.address,o.nameHi,o.addressHi)); }
+      else if(k.indexOf('sg_arcpt_')===0||k.indexOf('sg_wrcpt_')===0){ (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name,r.address,r.nameHi,r.addressHi)); }
+      else if(k.indexOf('sg_nb_')===0){ const db=JSON.parse(localStorage.getItem(k))||{};
+        ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address))); }
+    }catch(e){}
+  }
+  return Object.keys(map).map(k=>map[k]);
+}
+function ordSuggest(inp, onPick){
+  if(!inp) return;
+  const box=document.createElement('div'); box.className='ob-sg';
+  document.body.appendChild(box);
+  const hide=()=>{ box.style.display='none'; box.innerHTML=''; };
+  let hits=[];
+  const show=()=>{
+    const q=inp.value.trim().toUpperCase();
+    if(q.length<1){ hide(); return; }
+    hits=ordParties().filter(p=>p.name.toUpperCase().indexOf(q)>=0||String(p.address||'').toUpperCase().indexOf(q)>=0).slice(0,8);
+    if(!hits.length){ hide(); return; }
+    box.innerHTML=hits.map((p,i)=>`<div data-i="${i}"><b>${esc(p.name)}</b>${p.address?` <span>(${esc(p.address)})</span>`:''}${p.nameHi?`<em>${esc(p.nameHi)}${p.addressHi?' · '+esc(p.addressHi):''}</em>`:''}</div>`).join('');
+    const r=inp.getBoundingClientRect();
+    box.style.display='block';
+    box.style.left=(r.left+window.scrollX)+'px';
+    box.style.top=(r.bottom+window.scrollY+3)+'px';
+    box.style.width=Math.max(240,r.width)+'px';
+  };
+  inp.addEventListener('input',show);
+  inp.addEventListener('focus',show);
+  box.addEventListener('mousedown',e=>{
+    const d=e.target.closest('div[data-i]'); if(!d) return;
+    e.preventDefault(); onPick(hits[+d.dataset.i]); hide();
+  });
+  inp.addEventListener('blur',()=>setTimeout(hide,180));
+  document.addEventListener('scroll',hide,true);
+  return box;
+}
+
 /* ---------- aggregate ---------- */
 function aggItems(list){
   const m={};
@@ -148,7 +213,7 @@ function renderOrderBook(){
   const pend=ordPending();
   const back=pend.filter(o=>o.date!==DATE);
   const today=pend.filter(o=>o.date===DATE);
-  const todayDel=ordDelivs().filter(dv=>dv.date===DATE);      // सिर्फ़ आज की delivery
+  const todayDel=compleatToday();      // आज की delivery + आज के Atta Receipt
 
   const tot=aggItems(pend);
   const totHTML = tot.length
@@ -159,10 +224,11 @@ function renderOrderBook(){
   const AC=['#c0392b','#1f4ed8','#1e8449','#8e44ad','#d35400','#00838f','#b7950b'];
   const areaHTML = areas.length? areas.map((g,i)=>{
     const its=Object.keys(g.items).filter(k=>g.items[k]>0).sort((a,b)=>itemOrder(a)-itemOrder(b));
-    return `<div class="ob-ac" style="--ac:${AC[i%AC.length]}">
-      <div class="ob-ac-h"><b>${esc(g.area.code)}</b><span>${esc(g.area.name)}</span>${g.area.hi?`<i>${esc(g.area.hi)}</i>`:''}</div>
-      <div class="ob-ac-b">${its.map(k=>`<div class="ob-ac-l"><span>${esc(k)}</span><b>${oqs(g.items[k])}</b></div>`).join('')}</div>
-      <div class="ob-ac-f">${g.orders} order</div></div>`;
+    return `<div class="ob-ac1" style="--ac:${AC[i%AC.length]}">
+      <b class="ob-ac1-c">${esc(g.area.code)}</b>
+      <span class="ob-ac1-n">${esc(g.area.name)}</span>
+      ${its.map(k=>`<span class="ob-ac1-i">${esc(k)} <b>${oqs(g.items[k])}</b></span>`).join('')}
+      <span class="ob-ac1-o">${g.orders}</span></div>`;
   }).join('') : `<div class="ob-empty">—</div>`;
 
   wrap.innerHTML=`
@@ -186,30 +252,86 @@ function renderOrderBook(){
       </div>
       <div class="ob-side">
         <div class="ob-card-h green">✅ TODAY COMPLEAT — ${esc(DATE)} (${todayDel.length})</div>
-        ${todayDel.length? todayDel.map(dv=>delivCardHTML(dv)).join('') : `<div class="ob-empty">आज अभी कुछ complete नहीं</div>`}
+        ${todayDel.length? todayDel.map(c=>compleatCardHTML(c)).join('') : `<div class="ob-empty">आज अभी कुछ complete नहीं</div>`}
       </div>
     </div>`;
   const ab=document.getElementById('ob-add-btn'); if(ab) ab.addEventListener('click',()=>orderForm(null));
 }
 
-function itemPillHTML(it,part){
-  const r = hasRate(it)? `<em>× ${oqs(it.rate)}</em>` : `<em class="no">× rate ?</em>`;
-  return `<span class="ob-pill${part?' part':''}">${esc(it.name)} <b>${oqs(it.qty)}</b>${r}${part?'<i>बचा हुआ</i>':''}${it.note?`<small>${esc(it.note)}</small>`:''}</span>`;
+function itemPillHTML(g,part){
+  const r = oq(g.rate)>0? `<em>× ${oqs(g.rate)}</em>` : `<em class="no">× rate ?</em>`;
+  const adds=(g.adds||[]).map(a=>`<u class="ob-add-q">+${oqs(a.qty)}(${esc(a.date)})</u>`).join('');
+  return `<span class="ob-pill${part?' part':''}">${esc(g.name)} <b>${oqs(g.base)}</b>${adds}${r}${part?'<i>बचा हुआ</i>':''}${g.note?`<small>${esc(g.note)}</small>`:''}</span>`;
+}
+/* Name + Address — Atta Receipt जैसा दो row (English ऊपर, Hindi नीचे) */
+function nameBlockHTML(o){
+  return `<span class="ob-nm2"><span class="en">${esc((o.name||'').toUpperCase())}${o.address?` <small>— ${esc((o.address||'').toUpperCase())}</small>`:''}</span>${(o.nameHi||o.addressHi)?`<span class="hi">${esc(o.nameHi||'')}${o.addressHi?` — ${esc(o.addressHi)}`:''}</span>`:''}</span>`;
 }
 function orderCardHTML(o,isBack){
   const a=areaOf(o.address);
   const part=!!(o.deliv&&o.deliv.length);
-  const rem=ordRemain(o);
+  const gs=groupItems(o);
   return `<div class="ob-o${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl">${esc(String(o.no))}</span>
-      <span class="ob-o-nm">${esc((o.name||'').toUpperCase())}${o.nameHi?`<i>${esc(o.nameHi)}</i>`:''}</span>
+      ${nameBlockHTML(o)}
       <span class="ob-tag ac">${esc(a.code)}</span>
       ${part?'<span class="ob-tag part">बचा हुआ</span>':''}
       <span class="ob-tag time">${isBack?`🕐 ${esc(o.ts||'')} · ${esc(o.date)}`:`🕐 ${esc(o.ts||'')}`}</span>
     </div>
-    <div class="ob-o-b">${rem.map(it=>itemPillHTML(it,part)).join('')}</div>
+    <div class="ob-o-b">${gs.map(g=>itemPillHTML(g,part)).join('')}</div>
     <div class="ob-o-f">${ordNeedRate(o)?'⚠️ Rate बाक़ी — click कर के भरें':'👉 click → Atta Receipt auto-fill'}</div>
+  </div>`;
+}
+/* =========================================================
+   TODAY COMPLEAT — Atta Receipt (Receipt Details) + order delivery
+   Receipt cancel / rate edit / नया नाम → यहाँ भी अपने आप दिखेगा
+========================================================= */
+function ordRcptsToday(){
+  try{ return JSON.parse(localStorage.getItem('sg_arcpt_'+DATE)||'[]')||[]; }catch(e){ return []; }
+}
+function rcNoKey(v){ const n=parseInt(String(v||'').replace(/\D/g,''),10); return isFinite(n)? n : null; }
+function compleatToday(){
+  const rcs=ordRcptsToday();
+  const dels=ordDelivs().filter(dv=>dv.date===DATE);
+  const out=[];
+  const used={};
+  rcs.forEach((r,i)=>{
+    const key=rcNoKey(r.no);
+    const dv=dels.find(d=>key!==null && rcNoKey(d.rno)===key);
+    if(dv) used[dv.order.id+'|'+dv.dk]=1;
+    out.push({kind:'rc', rc:r, rcIdx:i, order:dv?dv.order:null,
+      items:(r.items||[]).map(it=>({name:it.name,qty:it.qty,rate:it.rate})),
+      ts:r.ts||'', rno:r.no, cancelled:!!r.cancelled, verified:!!r.verified,
+      rateEdited:!!r.rateEdited, fromNo:r.fromNo, millReturn:r.millReturn,
+      name:r.name, nameHi:r.nameHi, address:r.address, addressHi:r.addressHi});
+  });
+  dels.forEach(dv=>{ if(used[dv.order.id+'|'+dv.dk]) return;
+    out.push({kind:'dv', order:dv.order, items:dv.items||[], ts:dv.ts||'', rno:dv.rno,
+      name:dv.order.name, nameHi:dv.order.nameHi, address:dv.order.address, addressHi:dv.order.addressHi}); });
+  return out;
+}
+function compleatCardHTML(c){
+  const o=c.order;
+  const a=areaOf(c.address||(o&&o.address));
+  const left=o? ordRemain(o):[];
+  const pseudo={name:c.name,nameHi:c.nameHi,address:c.address,addressHi:c.addressHi};
+  return `<div class="ob-o done${c.cancelled?' cut':''}"${o?` data-od="${esc(o.date)}" data-oi="${esc(o.id)}"`:''}>
+    <div class="ob-o-h">
+      <span class="ob-sl green">${esc(String(o?o.no:(c.rno||'—')))}</span>
+      ${nameBlockHTML(pseudo)}
+      <span class="ob-tag ac">${esc(a.code)}</span>
+      ${c.rno?`<span class="ob-tag rc">Receipt #${esc(String(c.rno))}</span>`:''}
+      ${c.cancelled?`<span class="ob-tag part">❌ Cancel</span>`:''}
+      ${c.rateEdited?`<span class="ob-tag part">✏️ Rate बदला</span>`:''}
+      ${c.fromNo?`<span class="ob-tag rc">↩ #${esc(String(c.fromNo))} से</span>`:''}
+      ${c.millReturn?`<span class="ob-tag part">🏭 Mill ${esc(String(c.millReturn))}</span>`:''}
+      ${c.verified?`<span class="ob-tag ok">✅ ${esc(c.ts||'')}</span>`:`<span class="ob-tag time">🕐 ${esc(c.ts||'')}</span>`}
+    </div>
+    <div class="ob-o-b">${(c.items||[]).map(it=>`<span class="ob-pill ok">${esc(it.name)} <b>${oqs(it.qty)}</b>${oq(it.rate)>0?`<em>× ${oqs(it.rate)}</em>`:''}${it.extra?'<i>extra</i>':''}</span>`).join('')}</div>
+    ${o? (left.length? `<div class="ob-o-f red">⏳ बचा हुआ: ${left.map(it=>esc(it.name)+' '+oqs(it.qty)).join(' · ')}</div>`:'<div class="ob-o-f green">पूरा order complete ✅</div>')
+       : `<div class="ob-o-f">🧾 सीधे Atta Receipt से</div>`}
+    ${o&&o.date!==DATE? `<div class="ob-o-f">order तारीख़: ${esc(o.date)}</div>`:''}
   </div>`;
 }
 function delivCardHTML(dv){
@@ -218,7 +340,7 @@ function delivCardHTML(dv){
   return `<div class="ob-o done" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl green">${esc(String(o.no))}</span>
-      <span class="ob-o-nm">${esc((o.name||'').toUpperCase())}${o.nameHi?`<i>${esc(o.nameHi)}</i>`:''}</span>
+      ${nameBlockHTML(o)}
       <span class="ob-tag ac">${esc(a.code)}</span>
       ${dv.rno?`<span class="ob-tag rc">Receipt #${esc(String(dv.rno))}</span>`:''}
       <span class="ob-tag ok">✅ ${esc(dv.ts||'')}</span>
@@ -240,7 +362,6 @@ function itemRowHTML(it){
       <input type="hidden" class="of-item" value="${esc(it.name||'')}"><b>▼</b></div>
     <input type="number" step="any" class="of-qty" placeholder="Qty" value="${esc(it.qty??'')}">
     <input type="number" step="any" class="of-rate" placeholder="Rate (बाद में भी)" value="${esc(it.rate??'')}">
-    <input type="text" class="of-note" placeholder="note" value="${esc(it.note||'')}">
     <button type="button" class="of-del" title="हटाएँ">✕</button></div>`;
 }
 /* Particulars picker — Category → Variety */
@@ -271,14 +392,12 @@ function orderForm(existing){
   const o=existing||{items:[{}]};
   popup({
     title: existing? '✏️ Order बदलें' : '➕ नया Order',
-    body:`<div class="pp-note">नाम / पता <b>English</b> में लिखें — Hindi अपने आप बन जाएगा (सुधार भी सकते हैं). Rate अभी न भरें तो भी चलेगा.</div>
-      <div class="f-row"><input type="text" id="of-name" placeholder="Customer Name (English)" value="${esc(o.name||'')}"></div>
+    body:`<div class="f-row ob-dt"><label>📅 Order Date</label><input type="date" id="of-date" value="${esc(ordToISO(existing? existing.date : DATE))}"></div>
+      <div class="f-row"><input type="text" id="of-name" placeholder="Customer Name (English)" autocomplete="off" value="${esc(o.name||'')}"></div>
       <div class="f-row"><input type="text" id="of-name-hi" class="hi" placeholder="हिंदी नाम" value="${esc(o.nameHi||'')}"></div>
-      <div class="f-row"><input type="text" id="of-addr" placeholder="Address / Area (English)" value="${esc(o.address||'')}"></div>
+      <div class="f-row"><input type="text" id="of-addr" placeholder="Address / Area (English)" autocomplete="off" value="${esc(o.address||'')}"></div>
       <div class="f-row"><input type="text" id="of-addr-hi" class="hi" placeholder="हिंदी पता" value="${esc(o.addressHi||'')}"></div>
-      <div class="chips tiny" id="of-area-chips">${ORD_AREAS.map(a=>`<div class="chip sm" data-a="${esc(a.name)}">${esc(a.name)}<small>${a.code}</small></div>`).join('')}</div>
-      <div class="f-row"><input type="text" id="of-phone" placeholder="Mobile (optional)" value="${esc(o.phone||'')}"></div>
-      <div class="ob-fhead"><span>Particulars</span><span>Qty</span><span>Rate</span><span>Note</span><span></span></div>
+      <div class="ob-fhead"><span>Particulars</span><span>Qty</span><span>Rate</span><span></span></div>
       <div id="of-items">${(o.items&&o.items.length?o.items:[{}]).map(itemRowHTML).join('')}</div>
       <div class="add-strip" id="of-add-item">➕ और item जोड़ें</div>`,
     foot:`<span></span><div style="display:flex;gap:8px;">
@@ -293,11 +412,11 @@ function orderForm(existing){
         clearTimeout(t1); const v=nm.value; t1=setTimeout(()=>ordTryGoogle(v,t=>{ if(nm.value===v) hi.value=t; }),700); });
       ad.addEventListener('input',()=>{ ah.value=ordToHi(ad.value);
         clearTimeout(t2); const v=ad.value; t2=setTimeout(()=>ordTryGoogle(v,t=>{ if(ad.value===v) ah.value=t; }),700); });
-      bk.querySelector('#of-area-chips').addEventListener('click',e=>{
-        const c=e.target.closest('.chip'); if(!c) return;
-        ad.value=c.dataset.a; ah.value=ordToHi(c.dataset.a);
-        bk.querySelectorAll('#of-area-chips .chip').forEach(x=>x.classList.remove('sel')); c.classList.add('sel');
-      });
+      /* पुराने नाम — dropdown suggest, click पर सब भर जाएगा */
+      const fill=p=>{ nm.value=p.name||''; hi.value=p.nameHi||ordToHi(p.name||'');
+        ad.value=p.address||''; ah.value=p.addressHi||ordToHi(p.address||''); };
+      const sgN=ordSuggest(nm,fill), sgA=ordSuggest(ad,fill);
+      const gc=setInterval(()=>{ if(!document.body.contains(bk)){ if(sgN)sgN.remove(); if(sgA)sgA.remove(); clearInterval(gc); } },600);
       bk.querySelector('#of-add-item').addEventListener('click',()=>{
         bk.querySelector('#of-items').insertAdjacentHTML('beforeend',itemRowHTML({}));
       });
@@ -323,27 +442,61 @@ function orderForm(existing){
         bk.querySelectorAll('#of-items .ob-fr').forEach(r=>{
           const n=r.querySelector('.of-item').value, q=r.querySelector('.of-qty').value;
           if(!n || !oq(q)) return;
-          items.push({name:n, qty:oq(q), rate:r.querySelector('.of-rate').value.trim(), note:r.querySelector('.of-note').value.trim()});
+          items.push({name:n, qty:oq(q), rate:r.querySelector('.of-rate').value.trim()});
         });
         if(!items.length) return toast('Particulars + Qty भरें');
-        const data={name, nameHi:hi.value.trim(), address:ad.value.trim(), addressHi:ah.value.trim(),
-                    phone:bk.querySelector('#of-phone').value.trim(), items};
+        const oDate = ordFromISO(bk.querySelector('#of-date').value) || DATE;
+        const data={name, nameHi:hi.value.trim(), address:ad.value.trim(), addressHi:ah.value.trim(), items};
         if(existing){
           const f=ordFind(existing.date,existing.id); if(!f) return;
-          Object.assign(f.o,data); f.o.ets=nowTS(); f.o.edited=true;
-          f.o.ordered=items.map(x=>({name:x.name,qty:x.qty}));
-          ordSave(existing.date,f.list);
+          if(oDate!==existing.date){
+            /* तारीख़ बदल गयी — दूसरी तारीख़ में move */
+            const moved=Object.assign({},f.o,data,{ets:nowTS(),edited:true,
+              ordered:items.map(x=>({name:x.name,qty:x.qty}))});
+            f.list.splice(f.i,1); ordSave(existing.date,f.list);
+            const nl=ordLoad(oDate); nl.push(moved); ordSave(oDate,nl);
+          }else{
+            Object.assign(f.o,data); f.o.ets=nowTS(); f.o.edited=true;
+            f.o.ordered=items.map(x=>({name:x.name,qty:x.qty}));
+            ordSave(existing.date,f.list);
+          }
         }else{
-          const list=ordLoad(DATE);
+          /* वही नाम + पता पहले से pending है तो उसी में जोड़ो (नया serial नहीं) */
+          const same=ordFindSame(name, ad.value.trim());
+          if(same){
+            const f=ordFind(same.date,same.id);
+            f.o.items=f.o.items||[];
+            items.forEach(x=>{
+              const ex=f.o.items.find(y=>y.name===x.name && (y.d||f.o.date)===oDate);
+              if(ex){ ex.qty=oq(ex.qty)+oq(x.qty); if(!ex.rate&&x.rate) ex.rate=x.rate; }
+              else f.o.items.push(Object.assign({},x,{d:oDate}));
+            });
+            f.o.ets=nowTS();
+            f.o.adds=f.o.adds||[]; if(oDate!==f.o.date) f.o.adds.push({date:oDate,ts:nowTS()});
+            if(!f.o.nameHi && hi.value.trim()) f.o.nameHi=hi.value.trim();
+            if(!f.o.addressHi && ah.value.trim()) f.o.addressHi=ah.value.trim();
+            ordSave(same.date,f.list);
+            closePopup(); renderOrderBook(); toast('पुराने order में जोड़ दिया ✔'); return;
+          }
+          const list=ordLoad(oDate);
           list.push(Object.assign(data,{id:'o'+Date.now()+Math.floor(Math.random()*99),
             no:String(ordNextNo()).padStart(2,'0'), ts:nowTS(), deliv:[],
             ordered:items.map(x=>({name:x.name,qty:x.qty}))}));
-          ordSave(DATE,list);
+          ordSave(oDate,list);
         }
         closePopup(); renderOrderBook(); toast('Order save ✔');
       });
     }
   });
+}
+/* वही नाम + पता वाला pending order (सबसे पुराना) — तो उसी में जुड़े */
+function ordKeyNA(n,a){ return String(n||'').trim().toUpperCase().replace(/\s+/g,' ')+'|'+String(a||'').trim().toUpperCase().replace(/\s+/g,' '); }
+function ordFindSame(name,addr){
+  const k=ordKeyNA(name,addr);
+  const list=ordPending().filter(o=>ordKeyNA(o.name,o.address)===k);
+  if(!list.length) return null;
+  list.sort((a,b)=>ordDV(a.date).localeCompare(ordDV(b.date)));
+  return list[0];
 }
 /* Serial No — सब तारीख़ों में continuous */
 function ordNextNo(){ let mx=0; ordAll().forEach(o=>{ const n=parseInt(o.no,10); if(isFinite(n)&&n>mx) mx=n; }); return mx+1; }
@@ -364,20 +517,11 @@ function ordBoxAction(date,id){
       <button class="pp-btn cancel" onclick="closePopup()">बंद</button>
       <button class="pp-btn" style="background:#f39c12;color:#fff;" id="ob-edit">✏️ Edit</button>
       ${rem.length? `<button class="pp-btn save" id="ob-fill">${ordNeedRate(o)?'💰 पहले Rate भरें':'🧾 Atta Receipt खोलें →'}</button>`:''}
-      ${(o.deliv&&o.deliv.length)? `<button class="pp-btn" style="background:#636e72;color:#fff;" id="ob-undo">↩ आख़िरी delivery वापस</button>`:''}
       </div>`,
     onOpen(bk){
       bk.querySelector('#ob-edit').addEventListener('click',()=>{ closePopup(); orderForm(o); });
       const fl=bk.querySelector('#ob-fill');
       if(fl) fl.addEventListener('click',()=>{ if(ordNeedRate(o)) rateForm(date,id); else ordToReceipt(date,id); });
-      const un=bk.querySelector('#ob-undo');
-      if(un) un.addEventListener('click',()=>{
-        const g=ordFind(date,id); const dv=(g.o.deliv||[]).pop();
-        if(dv) (dv.items||[]).forEach(x=>{ if(x.extra) return;
-          const it=(g.o.items||[]).find(y=>y.name===x.name);
-          if(it) it.qty=oq(it.qty)+oq(x.qty); else g.o.items.push({name:x.name,qty:oq(x.qty),rate:x.rate||''}); });
-        ordSave(date,g.list); closePopup(); renderOrderBook(); toast('delivery वापस — फिर बाक़ी में');
-      });
     }
   });
 }
@@ -417,7 +561,7 @@ function ordToReceipt(date,id){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#ob-body .ob-o');
-  if(b) ordBoxAction(b.dataset.od,b.dataset.oi);
+  if(b && b.dataset.od && b.dataset.oi) ordBoxAction(b.dataset.od,b.dataset.oi);
 });
 
 /* =========================================================
@@ -435,7 +579,7 @@ function orderBookPrintHTML(forDate,inclCarry){
     <td style="text-align:center;font-weight:800;">${esc(String(o.no))}</td>
     <td>${esc((o.name||'').toUpperCase())}${o.nameHi?` (${esc(o.nameHi)})`:''}</td>
     <td style="text-align:center;">${esc(areaOf(o.address).code)}</td>
-    <td>${ordRemain(o).map(it=>`${esc(it.name)} ${oqs(it.qty)}${hasRate(it)?' × '+oqs(it.rate):' × ?'}`).join(' , ')}${(o.deliv&&o.deliv.length)?' <b>(बचा हुआ)</b>':''}</td>
+    <td>${groupItems(o).map(g=>`${esc(g.name)} ${oqs(g.base)}${(g.adds||[]).map(x=>`+${oqs(x.qty)}(${esc(x.date)})`).join('')}${oq(g.rate)>0?' × '+oqs(g.rate):' × ?'}`).join(' , ')}${(o.deliv&&o.deliv.length)?' <b>(बचा हुआ)</b>':''}</td>
     <td style="text-align:center;font-size:10px;">${esc(o.ts||'')}${o.date!==d?'<br>'+esc(o.date):''}</td></tr>`;
   return `<div style="background:#fff;color:#000;padding:10px 12px;font-family:'Poppins','Noto Sans Devanagari',sans-serif;">
     <div style="text-align:center;font-weight:900;font-size:19px;">SATYAM FOOD PRODUCT</div>
