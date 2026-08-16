@@ -91,8 +91,10 @@ let RECORD_EDIT = false;       // record-book back-date edit mode
 function load(){ let d=null; try{ d=JSON.parse(localStorage.getItem(KEY)); }catch(e){ d=null; }
   if(!d) d=blank(); else { migrate(d); applyCarry(d,DATE); }
   return d; }
-function blankRaw(){ return {opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null}; }
+function blankRaw(){ return {opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:[],receipts:[],totals:null}; }
 /* ---------- OUT HOME → अगले दिन रोकड (auto carry, self-healing) ---------- */
+function ohArr(db){ const o=(db||{}).outhome; return Array.isArray(o)? o : (typeof o==='number'? [{amount:o}] : []); }
+function ohSum(db){ return ohArr(db).reduce((a,x)=>a+(parseFloat(x.amount)||0),0); }
 function dnum(ds){ const m=/^(\d{2})-(\d{2})-(\d{4})$/.exec(ds||''); return m? (+m[3])*10000+(+m[2])*100+(+m[1]) : 0; }
 /* पिछले दिन जिसमें OUT HOME भरा गया — वहाँ जो बचा वह इस दिन का opening */
 function carryFor(date){
@@ -105,12 +107,13 @@ function carryFor(date){
     if(!n || n>=tgt) continue;
     let db=null; try{ db=JSON.parse(localStorage.getItem(k)); }catch(e){ continue; }
     if(!db || db.outhome===null || db.outhome===undefined) continue;
+    if(typeof db.outhome!=='number' && !(Array.isArray(db.outhome)&&db.outhome.length)) continue;
     if(n>bestN){ bestN=n; best=db; }
   }
   if(!best) return null;
   migrate(best);
   const T=computeTotals(best);
-  return Math.round((T.grand - (best.outhome||0))*100)/100;
+  return Math.round((T.grand - ohSum(best))*100)/100;
 }
 /* opening खाली हो तो पिछले दिन का बचा हुआ अपने आप भर दो */
 function applyCarry(db,date){
@@ -212,7 +215,14 @@ function sgSuggest(nameInp, addrInp){
 }
 window.sgSuggest=sgSuggest;
 function editTag(r){ return r.edited? `<span class="ets">✎ ${r.ets}${r.edate?(' · '+r.edate):''}</span>`:''; }
-function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; }); if(db.outhome===undefined) db.outhome=null;
+function migrate(db){ ['rokad','jama','maal','nagad','kharch','inhome','receipts'].forEach(k=>{ if(!Array.isArray(db[k])) db[k]=[]; });
+  /* OUT HOME — अब एक से ज़्यादा entry (पुराना single number अपने आप list बन जाएगा) */
+  if(db.outhome===undefined||db.outhome===null) db.outhome=[];
+  else if(typeof db.outhome==='number'){ const o={amount:db.outhome,ts:db.outhomeTs||''};
+    if(db.outhomeOld!==undefined&&db.outhomeOld!==null) o.old=db.outhomeOld;
+    if(db.outhomeEts) o.ets=db.outhomeEts;
+    db.outhome=[o]; delete db.outhomeOld; delete db.outhomeEts; }
+  else if(!Array.isArray(db.outhome)) db.outhome=[];
   /* पुरानी Plastic Bag entries — सिर्फ़ 25kg bag ही प्रति बोरा, बाक़ी 20kg/50kg/चोकर प्रति kg */
   db.maal.forEach(r=>{
     if(r && r.sub==='plastic_bag' && r.kind==='simple'){
@@ -656,7 +666,7 @@ function openKharch(editIdx=null){
         <div class="f-row"><label>Amount ₹</label><input type="number" id="kh-e-amt" inputmode="decimal" placeholder="रेट/अमाउंट भरें"></div>
       </div>
       <div id="kh-van" style="display:none;">
-        <div class="f-row"><label>वेन Option</label><select id="kh-van-type"><option value="gadi">🚐 गाड़ी खर्च</option><option value="petrol">⛽ Fuel</option></select></div>
+        <div class="f-row"><label>वेन Option</label><select id="kh-van-type"><option value="gadi">🚐 गाडी खर्च (Daily)</option><option value="petrol">⛽ Fuel</option></select></div>
         <div id="kh-van-petrol" style="display:none;">
           ${segRow('गाड़ी',[{v:'van',t:'🚐 Van'},{v:'bike',t:'🏍️ Bike'}],'van')}
           <div id="kh-van-details">
@@ -733,7 +743,7 @@ function openKharch(editIdx=null){
           const vt=bk.querySelector('#kh-van-type').value;
           if(vt==='gadi'){
             const gno=bk.querySelector('#kh-gadi-no').value;
-            rec={type:'van',name:'गाड़ी खर्च'+(gno?' '+gno:''),amount:amt,mk:'gadi',mkSub:'maint',vehNo:gno||''};
+            rec={type:'van',name:'गाडी खर्च (Daily)'+(gno?' '+gno:''),amount:amt,mk:'gadi',mkSub:'maint',vehNo:gno||''};
           }
           else{
             const veh=segVal(bk)||'van';
@@ -987,12 +997,14 @@ function buildInHome(db,live){
   return rows + ((db.inhome||[]).length>1?`<div class="io-sum">${fmt(sum)}</div>`:'') + (!rows&&live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर से लाया ₹…</div>`:'');
 }
 function buildOutHome(db,live){
-  if(db.outhome===null||db.outhome===undefined) return (live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर ले गया ₹…</div>`:'');
-  return `<div class="io-amt" data-io="out" title="बदलने के लिए click करें">${ioAmtHTML(db.outhome,db.outhomeOld,db.outhomeEts)} <span class="ts">घर →</span></div>`;
+  const L=ohArr(db);
+  const rows=L.map((a,i)=>`<div class="io-amt" data-io="out" data-i="${i}" title="बदलने के लिए click करें"><span class="plus">${i>0?'+':''}</span>${ioAmtHTML(a.amount,a.old,a.ets)} <span class="ts">${esc(a.ts||'घर →')}</span></div>`).join('');
+  const sum=L.reduce((s2,a)=>s2+(parseFloat(a.amount)||0),0);
+  return rows + (L.length>1?`<div class="io-sum">${fmt(sum)}</div>`:'') + (!rows&&live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर ले गया ₹…</div>`:'');
 }
 /* IN/OUT HOME — माल आवत column के अंदर best-design card */
 function buildIOCard(db,live){
-  const hasData=(db.inhome&&db.inhome.length)||db.outhome!==null&&db.outhome!==undefined;
+  const hasData=(db.inhome&&db.inhome.length)||ohArr(db).length;
   if(!live && !hasData) return '';
   return `<div class="io-card" data-nocol="1">
     <div class="io-head"><div class="in-h" id="inhome-head">🏠 IN HOME</div><div class="out-h" id="outhome-head">OUT HOME 🏠</div></div>
@@ -1096,7 +1108,7 @@ document.addEventListener('click',e=>{
   if(!e.target.closest('#notebook-screen')) return;
   const amt=e.target.closest('.io-amt');
   if(amt && amt.dataset.io==='in'){ editInHome(+amt.dataset.i); return; }
-  if(amt && amt.dataset.io==='out'){ openOutHome(); return; }
+  if(amt && amt.dataset.io==='out'){ editOutHome(+amt.dataset.i); return; }
   if(e.target.closest('#inhome-head')||e.target.closest('#col-inhome')){ openInHome(); }
   else if(e.target.closest('#outhome-head')||e.target.closest('#col-outhome')){ openOutHome(); }
 });
@@ -1145,30 +1157,57 @@ function openOutHome(){
   const T=computeTotals();
   popup({
     title:'🏠 OUT HOME — घर ले गया',
-    body:`<div class="pp-note">अभी कुल Total: <b>${fmt(T.grand)}</b> — जो बचेगा वह अगले दिन रोकड में अपने आप आएगा${(DB.outhome!==null&&DB.outhome!==undefined)?'<br>Amount बदलेंगे तो पुराना <b>कट कर</b> दिखेगा + time stamp आएगा':''}</div>
-      <div class="f-row"><label>OUT Amount</label><input type="number" id="oh-amt" inputmode="decimal" value="${DB.outhome??''}"></div>
-      <div class="f-row"><label>अगला दिन रोकड</label><div class="ro" id="oh-carry">${DB.outhome!==null?fmt(T.grand-DB.outhome):'—'}</div></div>`,
+    body:`<div class="pp-note">जब भी घर पैसा जाए — हर बार नया + होकर जुड़ेगा<br>अभी कुल Total: <b>${fmt(T.grand)}</b> — जो बचेगा वह अगले दिन रोकड में अपने आप आएगा</div>
+      <div class="f-row"><label>OUT Amount</label><input type="number" id="oh-amt" inputmode="decimal"></div>
+      <div class="f-row"><label>अगला दिन रोकड</label><div class="ro" id="oh-carry">${fmt(T.grand-ohSum(DB))}</div></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="oh-save">✓ Save</button></div>`,
     onOpen(bk){
-      const upd=()=>{ const o=parseFloat(bk.querySelector('#oh-amt').value)||0; bk.querySelector('#oh-carry').textContent=fmt(T.grand-o); };
+      const cur=ohSum(DB);
+      const upd=()=>{ const o=parseFloat(bk.querySelector('#oh-amt').value)||0; bk.querySelector('#oh-carry').textContent=fmt(T.grand-cur-o); };
       bk.querySelector('#oh-amt').addEventListener('input',upd);
       bk.querySelector('#oh-amt').focus();
       bk.querySelector('#oh-save').addEventListener('click',()=>{
         const o=parseFloat(bk.querySelector('#oh-amt').value)||0;
         if(o<=0){ toast('Amount भरें'); return; }
-        if(DB.outhome!==null&&DB.outhome!==undefined&&DB.outhome!==o){
-          if(DB.outhomeOld===undefined||DB.outhomeOld===null) DB.outhomeOld=DB.outhome;
-          DB.outhomeEts=nowTS();
-        }
-        DB.outhome=o; save();
-        localStorage.setItem('sg_carry',JSON.stringify({date:CUR_DATE,amount:T.grand-o}));
-        /* आगे की तारीख़ों का auto-carry opening तुरन्त update */
-        syncForwardCarry(CUR_DATE);
-        closePopup(); renderAll();
-        toast('अगले दिन रोकड में '+fmt(T.grand-o)+' अपने आप आएगा ✔');
+        if(!Array.isArray(DB.outhome)) DB.outhome=ohArr(DB);
+        DB.outhome.push({amount:o,ts:nowTS()});
+        saveOutHome(T);
       });
     }
   });
+}
+/* OUT HOME — amount edit (पुराना amount cut होकर दिखेगा + छोटा time stamp) */
+function editOutHome(i){
+  const L=ohArr(DB); const r=L[i]; if(!r) return;
+  DB.outhome=L;
+  const T=computeTotals();
+  popup({
+    title:'✏️ OUT HOME — Amount बदलें',
+    body:`<div class="pp-note">पुराना amount <b>${fmt(r.amount)}</b> कट कर दिखेगा और नया amount के साथ छोटा time stamp आएगा</div>
+      <div class="f-row"><label>नया Amount</label><input type="number" id="ohe-amt" inputmode="decimal" value="${r.amount}"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;">
+      <button class="pp-btn cancel" id="ohe-del">🗑️ हटाएँ</button>
+      <button class="pp-btn cancel" onclick="closePopup()">Cancel</button>
+      <button class="pp-btn save" id="ohe-save">✓ Save</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#ohe-amt').focus();
+      bk.querySelector('#ohe-del').addEventListener('click',()=>{ DB.outhome.splice(i,1); saveOutHome(T,'हटा दिया'); });
+      bk.querySelector('#ohe-save').addEventListener('click',()=>{
+        const a=parseFloat(bk.querySelector('#ohe-amt').value)||0;
+        if(a<=0){ toast('Amount भरें'); return; }
+        if(a!==r.amount){ if(r.old===undefined||r.old===null) r.old=r.amount; r.amount=a; r.ets=nowTS(); }
+        saveOutHome(T,'OUT HOME update ✔');
+      });
+    }
+  });
+}
+function saveOutHome(T,msg){
+  save();
+  const left=T.grand-ohSum(DB);
+  localStorage.setItem('sg_carry',JSON.stringify({date:CUR_DATE,amount:left}));
+  syncForwardCarry(CUR_DATE);
+  closePopup(); renderAll();
+  toast(msg||('अगले दिन रोकड में '+fmt(left)+' अपने आप आएगा ✔'));
 }
 
 /* ---------- column click / entry interactions ---------- */

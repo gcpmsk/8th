@@ -1021,7 +1021,7 @@
             if(!/cash/i.test(rec.name||'')) return;
             const k='sg_nb_'+APP_DATE;
             let db=null; try{ db=JSON.parse(localStorage.getItem(k)); }catch(e){ db=null; }
-            if(!db) db={opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:null,receipts:[],totals:null};
+            if(!db) db={opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:[],receipts:[],totals:null};
             if(!Array.isArray(db.rokad)) db.rokad=[];
             if((db.rokad||[]).some(r=>r.fromArcpt && String(r.fromArcpt)===String(rec.no))) return;
             const items=(rec.items||[]).map(x=>{

@@ -109,9 +109,10 @@ function sbJamaHTML(db,live){
 function sbBikriRows(){
   const rc=loadArr(ARC_KEY(SB_DATE)).filter(r=>r.verified && !r.cancelled);
   return rc.map(r=>{
-    const nm=(r.name||r.nameHi||'—'), nh=(r.nameHi&&r.nameHi!==r.name)?` (${r.nameHi})`:'';
+    /* सिर्फ़ English नाम / पता दिखेगा — Hindi वाला नहीं */
+    const nm=(r.name||'—'), ad=(r.address||'');
     const items=(r.items||[]).map(it=>`<div class="sb-sub">${esc(it.name||'')} &nbsp;${esc(String(it.qty||''))}×${esc(String(it.rate||''))}</div>`).join('');
-    return `<div class="sb-line blue"><span class="sb-amt">${sbF(r.total)}</span><span class="sb-txt">${esc(nm)}${nh} ${esc(r.address||r.addressHi||'')}${items}</span></div>`;
+    return `<div class="sb-line blue"><span class="sb-amt">${sbF(r.total)}</span><span class="sb-txt">${esc(nm)} ${esc(ad)}${items}</span></div>`;
   }).join('');
 }
 function sbBikriHTML(live){
