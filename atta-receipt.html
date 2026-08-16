@@ -892,17 +892,18 @@
             /* order की बाक़ी qty से घटाओ — जो order में नहीं है वह extra */
             const dItems=[];
             given.forEach(g=>{
-                const it=o.items.find(x=>x.name===g.name);
-                if(it){
-                    const use=Math.min(parseFloat(it.qty)||0, g.qty);
-                    it.qty=(parseFloat(it.qty)||0) - use;
-                    if(it.qty<0) it.qty=0;
-                    dItems.push({name:g.name, qty:use, rate:g.rate});
-                    const ex=g.qty-use;
-                    if(ex>0) dItems.push({name:g.name, qty:ex, rate:g.rate, extra:true});
-                }else{
-                    dItems.push({name:g.name, qty:g.qty, rate:g.rate, extra:true});
-                }
+                /* एक ही item नाम की कई entry (अलग-अलग दिन जुड़ी) — पुरानी से पहले घटाओ */
+                const rows=o.items.filter(x=>x.name===g.name);
+                let need=g.qty, usedTot=0;
+                rows.forEach(it=>{
+                    if(need<=0) return;
+                    const have=parseFloat(it.qty)||0;
+                    const use=Math.min(have,need);
+                    it.qty=have-use; if(it.qty<0) it.qty=0;
+                    need-=use; usedTot+=use;
+                });
+                if(usedTot>0) dItems.push({name:g.name, qty:usedTot, rate:g.rate});
+                if(need>0) dItems.push({name:g.name, qty:need, rate:g.rate, extra:true});
             });
             o.items = o.items.filter(x=>(parseFloat(x.qty)||0) > 0);
             o.deliv = o.deliv || [];

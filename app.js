@@ -976,14 +976,19 @@ function buildKharch(db,live){
       <span class="ts">${r.ts}</span>${editTag(r)}</div>`;
   }).join('') + (live?`<div class="add-strip" data-add="kharch">+ नयी खर्च entry</div>`:'');
 }
+/* पुराना amount cut + नया amount + छोटा time stamp */
+function ioAmtHTML(cur,old,ets){
+  const oldHTML=(old!==null&&old!==undefined)? `<span class="io-old">${fmt(old)}</span>` : '';
+  return `${oldHTML}${fmt(cur)}${ets?`<span class="ts ed">✏️ ${esc(ets)}</span>`:''}`;
+}
 function buildInHome(db,live){
-  const rows=(db.inhome||[]).map((a,i)=>`<div class="io-amt" data-io="in" data-i="${i}"><span class="plus">${i>0?'+':''}</span>${fmt(a.amount)} <span class="ts">${a.ts}</span></div>`).join('');
+  const rows=(db.inhome||[]).map((a,i)=>`<div class="io-amt" data-io="in" data-i="${i}" title="बदलने के लिए click करें"><span class="plus">${i>0?'+':''}</span>${ioAmtHTML(a.amount,a.old,a.ets)} <span class="ts">${esc(a.ts||'')}</span></div>`).join('');
   const sum=(db.inhome||[]).reduce((s,a)=>s+a.amount,0);
   return rows + ((db.inhome||[]).length>1?`<div class="io-sum">${fmt(sum)}</div>`:'') + (!rows&&live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर से लाया ₹…</div>`:'');
 }
 function buildOutHome(db,live){
   if(db.outhome===null||db.outhome===undefined) return (live?`<div style="color:#c3cad6;font-size:11px;font-family:'Kalam';">घर ले गया ₹…</div>`:'');
-  return `<div class="io-amt">${fmt(db.outhome)} <span class="ts">घर →</span></div>`;
+  return `<div class="io-amt" data-io="out" title="बदलने के लिए click करें">${ioAmtHTML(db.outhome,db.outhomeOld,db.outhomeEts)} <span class="ts">घर →</span></div>`;
 }
 /* IN/OUT HOME — माल आवत column के अंदर best-design card */
 function buildIOCard(db,live){
@@ -1089,6 +1094,9 @@ $('#nb-total-btn').addEventListener('click',()=>{
 /* ---------- IN / OUT HOME (delegated — card re-created on every render) ---------- */
 document.addEventListener('click',e=>{
   if(!e.target.closest('#notebook-screen')) return;
+  const amt=e.target.closest('.io-amt');
+  if(amt && amt.dataset.io==='in'){ editInHome(+amt.dataset.i); return; }
+  if(amt && amt.dataset.io==='out'){ openOutHome(); return; }
   if(e.target.closest('#inhome-head')||e.target.closest('#col-inhome')){ openInHome(); }
   else if(e.target.closest('#outhome-head')||e.target.closest('#col-outhome')){ openOutHome(); }
 });
@@ -1108,11 +1116,36 @@ function openInHome(){
     }
   });
 }
+/* IN HOME — amount edit (पुराना amount cut होकर दिखेगा + छोटा time stamp) */
+function editInHome(i){
+  const r=(DB.inhome||[])[i]; if(!r) return;
+  popup({
+    title:'✏️ IN HOME — Amount बदलें',
+    body:`<div class="pp-note">पुराना amount <b>${fmt(r.amount)}</b> कट कर दिखेगा और नया amount के साथ छोटा time stamp आएगा</div>
+      <div class="f-row"><label>नया Amount</label><input type="number" id="ihe-amt" inputmode="decimal" value="${r.amount}"></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;">
+      <button class="pp-btn cancel" id="ihe-del">🗑️ हटाएँ</button>
+      <button class="pp-btn cancel" onclick="closePopup()">Cancel</button>
+      <button class="pp-btn save" id="ihe-save">✓ Save</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#ihe-amt').focus();
+      bk.querySelector('#ihe-del').addEventListener('click',()=>{
+        DB.inhome.splice(i,1); save(); closePopup(); renderAll(); toast('हटा दिया');
+      });
+      bk.querySelector('#ihe-save').addEventListener('click',()=>{
+        const a=parseFloat(bk.querySelector('#ihe-amt').value)||0;
+        if(a<=0){ toast('Amount भरें'); return; }
+        if(a!==r.amount){ if(r.old===undefined||r.old===null) r.old=r.amount; r.amount=a; r.ets=nowTS(); }
+        save(); closePopup(); renderAll(); toast('IN HOME update ✔');
+      });
+    }
+  });
+}
 function openOutHome(){
   const T=computeTotals();
   popup({
     title:'🏠 OUT HOME — घर ले गया',
-    body:`<div class="pp-note">अभी कुल Total: <b>${fmt(T.grand)}</b> — जो बचेगा वह अगले दिन रोकड में अपने आप आएगा</div>
+    body:`<div class="pp-note">अभी कुल Total: <b>${fmt(T.grand)}</b> — जो बचेगा वह अगले दिन रोकड में अपने आप आएगा${(DB.outhome!==null&&DB.outhome!==undefined)?'<br>Amount बदलेंगे तो पुराना <b>कट कर</b> दिखेगा + time stamp आएगा':''}</div>
       <div class="f-row"><label>OUT Amount</label><input type="number" id="oh-amt" inputmode="decimal" value="${DB.outhome??''}"></div>
       <div class="f-row"><label>अगला दिन रोकड</label><div class="ro" id="oh-carry">${DB.outhome!==null?fmt(T.grand-DB.outhome):'—'}</div></div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="oh-save">✓ Save</button></div>`,
@@ -1123,6 +1156,10 @@ function openOutHome(){
       bk.querySelector('#oh-save').addEventListener('click',()=>{
         const o=parseFloat(bk.querySelector('#oh-amt').value)||0;
         if(o<=0){ toast('Amount भरें'); return; }
+        if(DB.outhome!==null&&DB.outhome!==undefined&&DB.outhome!==o){
+          if(DB.outhomeOld===undefined||DB.outhomeOld===null) DB.outhomeOld=DB.outhome;
+          DB.outhomeEts=nowTS();
+        }
         DB.outhome=o; save();
         localStorage.setItem('sg_carry',JSON.stringify({date:CUR_DATE,amount:T.grand-o}));
         /* आगे की तारीख़ों का auto-carry opening तुरन्त update */
@@ -2230,7 +2267,7 @@ function updateVerifyBanner(list){
   const p=pendingVerify(list);
   if(!p.length){ el.style.display='none'; return; }
   el.style.display='block';
-  el.innerHTML=`⏰ <b>${p.length}</b> Receipt अभी verify नहीं हुए — Serial: ${p.map(r=>'#'+esc(String(r.no))).join(', ')}`;
+  el.innerHTML=`⏰ <b>${p.length}</b> Receipt अभी verify नहीं हुए`;
 }
 function eveningPending(){
   if(new Date().getHours()<19) return [];
