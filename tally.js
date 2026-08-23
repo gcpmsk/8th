@@ -241,6 +241,7 @@ function tvWire(el){
   el.querySelectorAll('[data-mkitem]').forEach(x=>x.addEventListener('click',()=>tvMKEntry(x.dataset.mkitem,x.dataset.mkkind||'product')));
   el.querySelectorAll('[data-mkopen]').forEach(x=>x.addEventListener('click',()=>{ TVS.mkitem=x.dataset.mkopen; TVS.view='mkitem'; tvRender(); }));
   const ma=el.querySelector('#tv-addparty'); if(ma) ma.addEventListener('click',()=>tvManualParty(TVS.view==='deb'?'deb':'cred'));
+  const up=el.querySelector('#tv-upload'); if(up) up.addEventListener('click',tvUploadMenu);
   const pb=el.querySelector('#tv-paidmode'); if(pb) tvPaidModeTaps(pb);
   el.querySelectorAll('[data-pay]').forEach(x=>x.addEventListener('click',()=>tvPayEntry(x.dataset.pay)));
   el.querySelectorAll('[data-dueedit]').forEach(x=>tvDueTaps(x));
@@ -295,6 +296,7 @@ function tvRoot(){
   <div class="tv2">
     <button class="tvbig cd" data-tvgo="cd"><span class="bi">📒</span><b>C/D</b><small>Creditors &amp; Debtors</small></button>
     <button class="tvbig mk" data-tvgo="mk"><span class="bi">🏭</span><b>Mill खर्च</b><small>Product · गाडी · Maintenance</small></button>
+    <button class="tvbig up" id="tv-upload"><span class="bi">📤</span><b>Upload</b><small>PDF Upload D/C · Check</small></button>
   </div>`;
 }
 /* ---------- C/D ---------- */
@@ -875,6 +877,191 @@ function tvNewProduct(){
         const v=bk.querySelector('#tv-np').value.trim(); if(!v){ toast('नाम भरें'); return; }
         tvAddProduct(v); closePopup(); tvRender(); toast(v+' add ✔');
       }); }
+  });
+}
+
+/* =========================================================
+   📤 UPLOAD — PDF से Creditor/Debtor भरना + Check (compare only)
+========================================================= */
+const TV_PDFJS_URL   = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const TV_PDFJS_WORKER= 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function tvLoadPdfJs(){
+  return new Promise((res,rej)=>{
+    if(window.pdfjsLib){ res(); return; }
+    const s=document.createElement('script'); s.src=TV_PDFJS_URL;
+    s.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc=TV_PDFJS_WORKER; }catch(e){} res(); };
+    s.onerror=()=>rej(new Error('pdf.js load नहीं हुआ — internet check करें'));
+    document.head.appendChild(s);
+  });
+}
+/* PDF → rows (हर line के items x-position के साथ) */
+async function tvParsePdfRows(file){
+  await tvLoadPdfJs();
+  const buf=await file.arrayBuffer();
+  const doc=await window.pdfjsLib.getDocument({data:buf}).promise;
+  const rows=[];
+  for(let p=1;p<=doc.numPages;p++){
+    const page=await doc.getPage(p);
+    const tc=await page.getTextContent();
+    const lines={};
+    tc.items.forEach(it=>{
+      if(!String(it.str||'').trim()) return;
+      const y=Math.round(it.transform[5]);
+      let ky=null; for(const k in lines){ if(Math.abs(Number(k)-y)<=3){ ky=k; break; } }
+      if(ky===null) ky=String(y);
+      (lines[ky]=lines[ky]||[]).push({x:it.transform[4], s:String(it.str)});
+    });
+    Object.keys(lines).map(Number).sort((a,b)=>b-a).forEach(y=>{
+      rows.push(lines[String(y)].sort((a,b)=>a.x-b.x));
+    });
+  }
+  return rows;
+}
+/* rows → parties [{name, debit, credit}] — debit=Due, credit=Paid */
+function tvExtractParties(rows){
+  const isNum=s=>{ const t=String(s).trim().replace(/[₹\s]/g,''); return /^-?[\d,]+(\.\d+)?$/.test(t) && /\d/.test(t); };
+  const num=s=>tvN(String(s).replace(/[₹\s]/g,''));
+  /* header से Debit/Credit column की x-position */
+  let dbX=null, crX=null;
+  rows.forEach(items=>{ items.forEach(it=>{ const t=it.s.toLowerCase();
+    if(dbX===null && /(debit|डेबिट|\bdr\.?\b|due)/.test(t)) dbX=it.x;
+    if(crX===null && /(credit|क्रेडिट|\bcr\.?\b|paid)/.test(t)) crX=it.x;
+  }); });
+  const out={};
+  rows.forEach(items=>{
+    items=items.slice();
+    /* पहला item अगर सिर्फ़ छोटा serial number है तो हटाओ */
+    if(items.length>1 && /^\d{1,4}\.?$/.test(items[0].s.trim())) items.shift();
+    const nums=items.filter(it=>isNum(it.s));
+    const name=items.filter(it=>!isNum(it.s)).map(it=>it.s).join(' ')
+      .replace(/[|_]+/g,' ').replace(/\s+/g,' ').trim();
+    if(!name || !nums.length) return;
+    if(/total|grand|balance|opening|closing|page|debit|credit|amount|particular|statement|ledger|टोटल|कुल|बैलेंस|खाता/i.test(name)) return;
+    if(name.replace(/[^A-Za-z\u0900-\u097F]/g,'').length<2) return;
+    let debit=0, credit=0;
+    if(dbX!==null || crX!==null){
+      nums.forEach(n=>{ const dd=(dbX===null)?1e9:Math.abs(n.x-dbX), dc=(crX===null)?1e9:Math.abs(n.x-crX);
+        if(dd<=dc) debit+=num(n.s); else credit+=num(n.s); });
+    } else if(nums.length>=2){ debit=num(nums[nums.length-2].s); credit=num(nums[nums.length-1].s); }
+    else debit=num(nums[0].s);
+    if(debit<=0 && credit<=0) return;
+    const k=tvK(name);
+    if(!out[k]) out[k]={key:k, name, debit:0, credit:0};
+    out[k].debit+=debit; out[k].credit+=credit;
+  });
+  return Object.values(out);
+}
+/* --- Upload menu: दो बटन --- */
+function tvUploadMenu(){
+  popup({ title:'📤 Upload',
+    body:`<div class="tvup2">
+      <button class="tvupbtn u1" id="tvup-dc"><span class="ui">📤</span>Upload D/C<small>PDF से Creditor/Debtor भरें</small></button>
+      <button class="tvupbtn u2" id="tvup-ck"><span class="ui">🔍</span>Check<small>PDF vs Database मिलान — save नहीं होगा</small></button>
+    </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelector('#tvup-dc').addEventListener('click',()=>{ closePopup(); tvUploadPick('upload'); });
+      bk.querySelector('#tvup-ck').addEventListener('click',()=>{ closePopup(); tvUploadPick('check'); });
+    }
+  });
+}
+/* --- Creditor / Debtor चुनो --- */
+function tvUploadPick(mode){
+  popup({ title:(mode==='upload'?'📤 Upload D/C':'🔍 Check')+' — किसमें?',
+    body:`<div class="tvup2">
+      <button class="tvupbtn uc" id="tvup-c"><span class="ui">🟥</span>Creditors<small>देना है</small></button>
+      <button class="tvupbtn ud" id="tvup-d"><span class="ui">🟩</span>Debtors<small>लेना है</small></button>
+    </div>`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">Cancel</button>`,
+    onOpen(bk){
+      bk.querySelector('#tvup-c').addEventListener('click',()=>{ closePopup(); tvUploadFile(mode,'cred'); });
+      bk.querySelector('#tvup-d').addEventListener('click',()=>{ closePopup(); tvUploadFile(mode,'deb'); });
+    }
+  });
+}
+/* --- file चुनो और parse करो --- */
+function tvUploadFile(mode,kind){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='application/pdf,.pdf';
+  inp.addEventListener('change',async ()=>{
+    const f=inp.files && inp.files[0]; if(!f) return;
+    popup({ title:'⏳ PDF पढ़ रहे हैं...', body:`<div class="tvup-load">📄 ${tvE(f.name)}<br>कृपया रुकें...</div>`, foot:'' });
+    try{
+      const rows=await tvParsePdfRows(f);
+      const parties=tvExtractParties(rows);
+      closePopup();
+      if(!parties.length){ toast('❌ PDF में कोई नाम/amount नहीं मिला'); return; }
+      if(mode==='upload') tvUploadPreview(kind,parties,f.name);
+      else tvCheckResult(kind,parties,f.name);
+    }catch(e){ closePopup(); toast('❌ '+(e.message||'PDF पढ़ने में error')); }
+  });
+  inp.click();
+}
+/* --- UPLOAD preview → save --- */
+function tvUploadPreview(kind,parties,fname){
+  const rowsHTML=parties.map((p,i)=>`<tr>
+    <td>${i+1}</td><td>${tvE(p.name)}</td>
+    <td class="n">${p.debit>0?'₹'+tvF(p.debit):'—'}</td>
+    <td class="n">${p.credit>0?'₹'+tvF(p.credit):'—'}</td></tr>`).join('');
+  const tD=parties.reduce((a,p)=>a+p.debit,0), tC=parties.reduce((a,p)=>a+p.credit,0);
+  popup({ title:'📤 '+(kind==='cred'?'🟥 Creditors':'🟩 Debtors')+' — Upload Preview',
+    body:`<div class="pp-note">📄 <b>${tvE(fname)}</b> — ${parties.length} party मिली · Debit=<b>Due</b> · Credit=<b>Paid</b><br>✓ Save दबाने पर सब ${kind==='cred'?'Creditors':'Debtors'} में जुड़ जाएगा</div>
+      <div class="tvup-sum"><span>👥 ${parties.length} party</span><span>💸 Due ₹${tvF(tD)}</span><span>✅ Paid ₹${tvF(tC)}</span></div>
+      <div style="max-height:46vh;overflow:auto;"><table class="tvup-tbl">
+        <tr><th>Sr</th><th>नाम</th><th>Due (Debit)</th><th>Paid (Credit)</th></tr>${rowsHTML}</table></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tvup-sv">✓ Save All</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#tvup-sv').addEventListener('click',()=>{
+        const all=tvArr(TV_MAN); const dt=tvToday(), ts=tvNowTS();
+        parties.forEach(p=>{ all.push({kind, name:p.name, address:'', mob:'',
+          due:p.debit, paid:p.credit, note:'PDF Upload', date:dt, ts, t:Date.now()}); });
+        tvSet(TV_MAN,all);
+        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors':'Creditors'), what:'PDF Upload', name:fname, neu:parties.length+' party', note:'Due ₹'+tvF(tD)+' · Paid ₹'+tvF(tC)});
+        closePopup(); tvRefresh(); tvRender(); toast('✔ '+parties.length+' party '+(kind==='cred'?'Creditors':'Debtors')+' में जुड़ गई');
+      });
+    }
+  });
+}
+/* --- CHECK — database vs upload मिलान (save नहीं होता) --- */
+function tvCheckResult(kind,parties,fname){
+  const D=tvBuild(true);
+  const dbArr=(kind==='cred'?D.cred:D.deb);
+  const dbMap={}; dbArr.forEach(p=>{ dbMap[p.key]=p; });
+  const seen={};
+  let nOK=0,nDiff=0,nNew=0;
+  const rows=[];
+  parties.forEach(p=>{
+    const upBal=p.debit-p.credit;
+    const db=dbMap[p.key];
+    if(db){ seen[p.key]=1;
+      const same=Math.round(db.bal)===Math.round(upBal);
+      if(same) nOK++; else nDiff++;
+      rows.push({st:same?'ok':'diff', name:p.name,
+        dbD:db.dueT||0, dbP:db.paidT||0, dbB:db.bal,
+        upD:p.debit, upP:p.credit, upB:upBal});
+    } else { nNew++;
+      rows.push({st:'new', name:p.name, dbD:null, dbP:null, dbB:null, upD:p.debit, upP:p.credit, upB:upBal});
+    }
+  });
+  const dbOnly=dbArr.filter(p=>!seen[p.key] && Math.round(p.bal)!==0);
+  dbOnly.forEach(p=>rows.push({st:'only', name:p.name, dbD:p.dueT||0, dbP:p.paidT||0, dbB:p.bal, upD:null, upP:null, upB:null}));
+  const TAG={ok:'<span class="tvup-tag ok">MATCH ✓</span>', diff:'<span class="tvup-tag diff">FARK ✗</span>',
+    new:'<span class="tvup-tag new">NEW (upload में)</span>', only:'<span class="tvup-tag only">सिर्फ़ DB में</span>'};
+  const F=v=>v===null?'—':'₹'+tvF(v);
+  const rowsHTML=rows.map((r,i)=>`<tr class="${r.st}">
+    <td>${i+1}</td><td>${tvE(r.name)}<br>${TAG[r.st]}</td>
+    <td class="n">${F(r.dbB)}<br><small style="font-weight:500;">D ${F(r.dbD)} · P ${F(r.dbP)}</small></td>
+    <td class="n">${F(r.upB)}<br><small style="font-weight:500;">D ${F(r.upD)} · P ${F(r.upP)}</small></td>
+    <td class="n">${(r.dbB!==null&&r.upB!==null&&Math.round(r.dbB)!==Math.round(r.upB))?('₹'+tvF(Math.abs(r.upB-r.dbB))+(r.upB>r.dbB?' ⬆ upload ज़्यादा':' ⬇ upload कम')):'—'}</td></tr>`).join('');
+  popup({ title:'🔍 Check Result — '+(kind==='cred'?'🟥 Creditors':'🟩 Debtors'),
+    body:`<div class="pp-note">📄 <b>${tvE(fname)}</b> vs आपका Database — <b>यह save नहीं होगा</b>, सिर्फ़ मिलान है</div>
+      <div class="tvup-sum">
+        <span style="background:#e8f5e9;">✓ Match: <b>${nOK}</b></span>
+        <span style="background:#ffebee;">✗ फ़र्क: <b>${nDiff}</b></span>
+        <span style="background:#fff8e1;">🆕 New (सिर्फ़ upload में): <b>${nNew}</b></span>
+        <span style="background:#e3f2fd;">📒 सिर्फ़ Database में: <b>${dbOnly.length}</b></span></div>
+      <div style="max-height:52vh;overflow:auto;"><table class="tvup-tbl">
+        <tr><th>Sr</th><th>नाम / Result</th><th>📒 Database<br>Balance</th><th>📤 Upload<br>Balance</th><th>फ़र्क</th></tr>${rowsHTML}</table></div>`,
+    foot:`<span style="font-size:11px;font-weight:700;color:#7a8aa0;">Database में कुछ नहीं बदला</span><button class="pp-btn cancel" onclick="closePopup()">Close</button>`
   });
 }
 
