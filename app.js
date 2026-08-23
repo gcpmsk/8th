@@ -502,6 +502,7 @@ function openMaalSimple(subKey,editIdx=null){
         const c=g('ms-qty-lbl');  if(c) c.textContent=qm.label; };
       if(S.opts) g('ms-opt').addEventListener('change',updUnit);
       updUnit();
+      sgSuggest(g('ms-name'), g('ms-addr'));   /* नाम लिखते ही search suggestion — जमा नाम खाते जैसा */
       g('ms-qty').addEventListener('input',upd); g('ms-rate').addEventListener('input',upd);
       g('ms-qty').focus();
       g('ms-save').addEventListener('click',()=>{
@@ -566,6 +567,7 @@ function openMaal(editIdx=null, subKey='plain'){
         g('ml-fill-fields').style.display = curKind==='fill'?'block':'none';
         g('ml-pic-row').style.display = curKind==='fill'?'none':'flex';
       });
+      sgSuggest(g('ml-name'), g('ml-addr'));   /* नाम लिखते ही search suggestion — जमा नाम खाते जैसा */
       const autoNett=()=>{ const gr=parseFloat(g('ml-gross').value), tr=parseFloat(g('ml-tare').value); if(!isNaN(gr)&&!isNaN(tr)&&g('ml-nett').value==='') g('ml-nett').value=(gr-tr); };
       g('ml-gross').addEventListener('change',autoNett); g('ml-tare').addEventListener('change',autoNett);
       const parseWeights=()=>g('ml-weights').value.split(/[,\s]+/).map(x=>parseFloat(x)).filter(x=>!isNaN(x)&&x>0);
