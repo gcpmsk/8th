@@ -31,7 +31,7 @@ function dsn(env) {
 }
 
 async function connect(env) {
-  const client = new Client({ connectionString: dsn(env) });
+  const client = new Client({ connectionString: dsn(env), connectionTimeoutMillis: 8000 });
   await client.connect();
   return client;
 }
