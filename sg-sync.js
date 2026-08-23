@@ -26,8 +26,9 @@
   var QUEUE_KEY  = '__sg_sync_queue';  // { key: {value, updated_at} }
   var CURSOR_KEY = '__sg_sync_cursor'; // last server updated_at
   var SEED_KEY   = '__sg_sync_seeded';
-  var PULL_MS    = 20000;
+  var PULL_MS    = 5000;               // हर 5 सेकंड — दूसरे mobile का data लगभग realtime
   var PUSH_MS    = 800;
+  var lastError  = '';                 // आख़िरी server error (dot पर click करके देखें)
 
   /* ---------- raw localStorage (बिना wrap के) ---------- */
   var LS  = window.localStorage;
@@ -49,7 +50,8 @@
   function saveMeta()  { jset(META_KEY, meta); }
   function saveQueue() { jset(QUEUE_KEY, queue); }
 
-  /* ---------- status dot (छोटा सा, print में नहीं दिखता) ---------- */
+  /* ---------- status dot (छोटा सा, print में नहीं दिखता) ----------
+     dot पर tap/click करें → पूरा message + आख़िरी error दिखेगा ---------- */
   var dot = null, lastState = 'busy', lastTitle = '';
   function setStatus(state, title) {
     lastState = state; lastTitle = title || state;
@@ -59,8 +61,14 @@
         dot = document.createElement('div');
         dot.id = 'sg-sync-dot';
         dot.style.cssText =
-          'position:fixed;left:6px;bottom:6px;width:9px;height:9px;border-radius:50%;' +
-          'z-index:99999;opacity:.55;pointer-events:none;transition:background .3s;';
+          'position:fixed;left:6px;bottom:6px;width:14px;height:14px;border-radius:50%;' +
+          'z-index:99999;opacity:.7;cursor:pointer;transition:background .3s;';
+        dot.addEventListener('click', function () {
+          var msg = 'Sync status: ' + lastState + '\n' + lastTitle;
+          if (lastError) msg += '\n\nServer error:\n' + lastError;
+          msg += '\n\nPending (भेजना बाक़ी): ' + Object.keys(queue).length + ' items';
+          alert(msg);
+        });
         document.body.appendChild(dot);
         var st = document.createElement('style');
         st.textContent = '@media print{#sg-sync-dot{display:none!important}}';
@@ -117,8 +125,11 @@
           setStatus('ok', 'Database से जुड़ा है');
           return true;
         }
+        lastError = (d && d.error) ? String(d.error) : ('bad response: ' + String(xhr.responseText).slice(0, 300));
+      } else {
+        lastError = 'HTTP ' + xhr.status + ' — ' + String(xhr.responseText).slice(0, 300);
       }
-    } catch (e) {}
+    } catch (e) { lastError = String(e && e.message || e); }
     setStatus('off', 'Database से नहीं जुड़ा — data सिर्फ़ इसी device में है');
     return false;
   }
@@ -183,7 +194,12 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: items })
     })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function (r) {
+        if (r.ok) return r.json();
+        return r.text().then(function (t) {
+          throw new Error('HTTP ' + r.status + ' — ' + String(t).slice(0, 300));
+        });
+      })
       .then(function (d) {
         if (!d || !d.ok) throw new Error((d && d.error) || 'save failed');
         batch.forEach(function (k) {
@@ -197,7 +213,8 @@
       })
       .catch(function (err) {
         pushing = false;
-        setStatus('err', 'Save नहीं हुआ: ' + (err && err.message));
+        lastError = String(err && err.message || err);
+        setStatus('err', 'Save नहीं हुआ: ' + lastError);
         setTimeout(schedulePush, 5000);
       });
   }
@@ -228,14 +245,26 @@
     if (document.hidden) return;
     var since = parseInt(jget(CURSOR_KEY, 0), 10) || 0;
     fetch(API + '?since=' + since, { headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function (r) {
+        if (r.ok) return r.json();
+        return r.text().then(function (t) {
+          throw new Error('HTTP ' + r.status + ' — ' + String(t).slice(0, 300));
+        });
+      })
       .then(function (d) {
-        if (!d || !d.ok || !Array.isArray(d.rows)) return;
+        if (!d || !d.ok || !Array.isArray(d.rows)) {
+          lastError = (d && d.error) ? String(d.error) : 'bad response';
+          setStatus('err', 'Database error: ' + lastError);
+          return;
+        }
         var c = applyRows(d.rows);
         setStatus('ok', 'Database से जुड़ा है');
         if (c) refreshUI();
       })
-      .catch(function () { setStatus('off', 'Database से नहीं जुड़ा'); });
+      .catch(function (err) {
+        lastError = String(err && err.message || err);
+        setStatus('off', 'Database से नहीं जुड़ा: ' + lastError);
+      });
   }
 
   function refreshUI() {
@@ -275,7 +304,7 @@
   window.sgSync = {
     push: pushNow,
     pull: pullDelta,
-    status: function () { return { pending: Object.keys(queue).length, cursor: jget(CURSOR_KEY, 0) }; },
-    resetSeed: function () { rawRemove(SEED_KEY); }
+    status: function () { return { state: lastState, error: lastError, pending: Object.keys(queue).length, cursor: jget(CURSOR_KEY, 0) }; },
+    resetSeed: function () { rawRemove(SEED_KEY); rawSet(SEED_KEY, ''); rawRemove(SEED_KEY); seedOnce(); }
   };
 })();

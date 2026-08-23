@@ -427,9 +427,34 @@ Pages project → **Settings → Build & deployments**
 
 ## ✅ Step 4 — check करें
 
+### 4.0 सबसे पहले health check (नया!)
+Browser में खोलें:
+```
+https://आपकी-site/api/health
+```
+यह साफ़-साफ़ बता देगा कि दिक्कत कहाँ है:
+
+| output | मतलब |
+|---|---|
+| `"database_url_set": false` | Cloudflare में **DATABASE_URL** secret डला ही नहीं / गलत environment में है → Step 2 करें, फिर **Retry deployment** |
+| `"db_connected": false` + error में `timeout` | Postgres का **port 5432** बाहर से नहीं खुला / firewall बंद है |
+| error में `password authentication failed` | DATABASE_URL में **password गलत** है |
+| `"sg_store_rows": "table नहीं बनी..."` | Adminer में `schema.sql` चलाएँ (Step 1) |
+| `"ok": true, "sg_store_rows": 12` | सब सही ✔ — data save हो रहा है |
+
+### 4.1 Entry test
 1. site खोलें → कोई entry भरें
 2. Adminer में जाएँ → `sg_store` table → **select sg_store**
 3. `sg_nb_<आज की तारीख़>` row दिख जाएगी ✔
+
+### 4.2 नीचे-बाएँ रंगीन dot पर tap करें (नया!)
+हर page के नीचे-बाएँ कोने में एक dot है — उस पर **tap/click** करने से पूरा status + server का exact error message दिखता है:
+- 🟢 हरा = Database से जुड़ा है, save हो रहा है
+- 🟡 पीला = save चल रहा है
+- 🔴 लाल = save fail — tap करके error पढ़ें
+- ⚪ grey = database से जुड़ा नहीं (सिर्फ़ इसी device में save)
+
+दूसरे mobile का data अब हर **5 सेकंड** में अपने आप आ जाता है (लगभग realtime)।
 
 Browser console में भी देख सकते हैं:
 ```js
