@@ -86,28 +86,48 @@
   /* =====================================================================
      1) BOOT PULL — page load पर server से data (synchronous)
      ===================================================================== */
+  /* SERVER AUTHORITATIVE — Postgres ही सच है.
+     - server की हर row local पर लिख दो (सिर्फ़ pending queue वाली key छोड़ो —
+       वह अभी server को भेजी जानी बाक़ी है)
+     - जो sg_ key server में नहीं है (Postgres से delete कर दी गयी)
+       वह local से भी हटा दो
+     → Postgres में edit/delete करते ही सारे mobiles पर वही data दिखेगा */
   function applyRows(rows) {
     var changed = 0, maxTs = parseInt(jget(CURSOR_KEY, 0), 10) || 0;
+    var serverKeys = {};
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!isSyncKey(r.key)) continue;
       var ts = parseInt(r.updated_at, 10) || 0;
       if (ts > maxTs) maxTs = ts;
 
-      var localTs = parseInt(meta[r.key], 10) || 0;
       var pending = Object.prototype.hasOwnProperty.call(queue, r.key);
-      if (pending || ts <= localTs) continue;   // local नया है या भेजना बाक़ी है → छोड़ दो
+      if (r.value !== null && r.value !== undefined) serverKeys[r.key] = true;
+      if (pending) continue;                    // भेजना बाक़ी है → छोड़ दो
 
       if (r.value === null || r.value === undefined) {
-        rawRemove(r.key);
+        if (rawGet(r.key) !== null) { rawRemove(r.key); changed++; }
         delete meta[r.key];
       } else {
-        try { rawSet(r.key, JSON.stringify(r.value)); } catch (e) { continue; }
+        var localTs = parseInt(meta[r.key], 10) || 0;
+        if (ts < localTs) continue;             // local ज़्यादा नया है
+        var s; try { s = JSON.stringify(r.value); } catch (e) { continue; }
+        if (rawGet(r.key) !== s) { try { rawSet(r.key, s); } catch (e2) { continue; } changed++; }
         meta[r.key] = ts;
       }
-      changed++;
     }
-    if (changed) saveMeta();
+    /* server में जो key नहीं है वह local से हटाओ (Postgres में delete हुई थी) */
+    var toRemove = [];
+    for (var j = 0; j < LS.length; j++) {
+      var k = rawKey(j);
+      if (!isSyncKey(k)) continue;
+      if (serverKeys[k]) continue;
+      if (Object.prototype.hasOwnProperty.call(queue, k)) continue;  // भेजना बाक़ी
+      toRemove.push(k);
+    }
+    toRemove.forEach(function (k) { rawRemove(k); delete meta[k]; changed++; });
+
+    saveMeta();
     jset(CURSOR_KEY, maxTs);
     return changed;
   }
@@ -243,8 +263,8 @@
      ===================================================================== */
   function pullDelta() {
     if (document.hidden) return;
-    var since = parseInt(jget(CURSOR_KEY, 0), 10) || 0;
-    fetch(API + '?since=' + since, { headers: { Accept: 'application/json' } })
+    /* हमेशा FULL pull — ताकि Postgres में हुआ delete/edit भी पकड़ में आए */
+    fetch(API + '?full=1', { headers: { Accept: 'application/json' } })
       .then(function (r) {
         if (r.ok) return r.json();
         return r.text().then(function (t) {
@@ -276,8 +296,10 @@
   /* =====================================================================
      चालू करो
      ===================================================================== */
-  bootPull();
+  /* पहली बार: पहले local data queue में डालो (ताकि server authoritative
+     boot-pull उसे मिटा न दे), फिर server से खींचो */
   seedOnce();
+  bootPull();
 
   // body अभी न बना हो तो dot बाद में लगाओ
   if (!dot) {
