@@ -183,6 +183,8 @@ function sgParties(){
         ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address)));
       } else if(k.indexOf('sg_arcpt_')===0 || k.indexOf('sg_wrcpt_')===0){
         (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name||r.nameHi, r.address||r.addressHi));
+      } else if(k.indexOf('sg_tvup_')===0){
+        const p=JSON.parse(localStorage.getItem(k))||{}; add(p.name,p.address,p.mob);
       }
     }catch(e){}
   }
@@ -1358,6 +1360,19 @@ function printOverrideCSS(landscape,overlay){
   #pw .hw-entry{font-size:11.5px!important;}
   #pw .maal-entry{font-size:11px!important;}
   #pw .sbook .sb-sub.big{font-size:1em!important;}
+  /* ---- S.BOOK print : overlap fix — vw-clamp हटा कर fixed size, wrap ठीक ---- */
+  #pw .sbook .sb-line{font-size:11.5px!important;line-height:1.45!important;padding:2.5px 0!important;
+    align-items:flex-start!important;flex-wrap:nowrap!important;}
+  #pw .sbook .sb-amt{font-size:11.5px!important;min-width:40px!important;padding:0 4px 1px 2px!important;
+    margin-right:5px!important;line-height:1.35!important;}
+  #pw .sbook .sb-txt{font-size:11.5px!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important;}
+  #pw .sbook .sb-sub{font-size:10px!important;line-height:1.4!important;}
+  #pw .sbook .sb-circle{font-size:10.5px!important;padding:4px 7px!important;margin-top:1px!important;line-height:1.2!important;}
+  #pw .sbook .sb-grp{gap:6px!important;margin-bottom:6px!important;align-items:flex-start!important;}
+  #pw .sbook .sb-grp-lines{min-width:0!important;}
+  #pw .sbook .sb-branch{padding-left:10px!important;margin-left:4px!important;}
+  #pw .sbook .nb-col{overflow:visible!important;}
+  #pw .sbook .nb-col-stack .nb-col{min-height:30px!important;}
   #pw .total-block{font-size:11.5px!important;}
   #pw .kharch-divider{font-size:12.5px!important;}
   #pw .nb-col{min-height:40px!important;padding-bottom:6px!important;}

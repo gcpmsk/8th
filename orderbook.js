@@ -154,6 +154,8 @@ function ordParties(){
       else if(k.indexOf('sg_arcpt_')===0||k.indexOf('sg_wrcpt_')===0){ (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name,r.address,r.nameHi,r.addressHi)); }
       else if(k.indexOf('sg_nb_')===0){ const db=JSON.parse(localStorage.getItem(k))||{};
         ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address))); }
+      else if(k.indexOf('sg_tvup_')===0){ const p=JSON.parse(localStorage.getItem(k))||{}; add(p.name,p.address); }
+      else if(k==='sg_tv_manual'){ (JSON.parse(localStorage.getItem(k))||[]).forEach(p=>add(p.name,p.address)); }
     }catch(e){}
   }
   return Object.keys(map).map(k=>map[k]);

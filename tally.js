@@ -142,6 +142,19 @@ function tvBuild(force){
     o.manual=true;
   });
 
+  /* --- PDF Upload entries — हर party की अपनी sg_tvup_ key (database में name-by-name, वहाँ से edit भी) --- */
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i); if(!k||k.indexOf('sg_tvup_')!==0) continue;
+    const p=tvJSON(k,null); if(!p||!p.name) continue;
+    const map=p.kind==='deb'?deb:cred;
+    const o=C(map,p.name,p.address); if(!o) continue;
+    if(p.mob && !tvMob(o.key)) tvSetMob(o.key,p.mob);
+    if(tvN(p.due)>0)  o.due .push({date:p.date||tvToday(), amt:tvN(p.due), final:true, manual:true, ts:p.ts||'', label:p.note||'PDF Upload',
+      src:'up', skey:k, cut:!!p.tvCut, oldAmt:(p.tvAmtOld!==undefined?tvN(p.tvAmtOld):null), ets:p.tvEts||'', edate:p.tvEdate||''});
+    if(tvN(p.paid)>0) o.paid.push({date:p.date||tvToday(), amt:tvN(p.paid), manual:true, ts:p.ts||'', mode:'PDF'});
+    o.manual=true;
+  }
+
   const finish = (map)=>Object.values(map).map(o=>{
     o.dueT  = o.due .filter(x=>!x.cut).reduce((a,x)=>a+x.amt,0);
     o.paidT = o.paid.filter(x=>!x.cut).reduce((a,x)=>a+x.amt,0);
@@ -531,6 +544,8 @@ function tvDueSrc(d){
     return {get:()=>a[d.sidx], save:()=>tvSet(k,a)}; }
   if(d.src==='man'){ const a=tvArr(TV_MAN); if(!a[d.sidx]) return null;
     return {get:()=>a[d.sidx], save:()=>tvSet(TV_MAN,a)}; }
+  if(d.src==='up'){ const p=tvJSON(d.skey,null); if(!p) return null;
+    return {get:()=>p, save:()=>tvSet(d.skey,p)}; }
   return null;
 }
 function tvDueLineEdit(di){
@@ -917,15 +932,17 @@ async function tvParsePdfRows(file){
   }
   return rows;
 }
-/* rows → parties [{name, debit, credit}] — debit=Due, credit=Paid */
+/* rows → parties [{name, address, debit, credit}] — debit=Due, credit=Paid */
 function tvExtractParties(rows){
   const isNum=s=>{ const t=String(s).trim().replace(/[₹\s]/g,''); return /^-?[\d,]+(\.\d+)?$/.test(t) && /\d/.test(t); };
   const num=s=>tvN(String(s).replace(/[₹\s]/g,''));
-  /* header से Debit/Credit column की x-position */
-  let dbX=null, crX=null;
+  const clean=s=>String(s||'').replace(/[|_]+/g,' ').replace(/\s+/g,' ').trim();
+  /* header से Debit/Credit/Address column की x-position */
+  let dbX=null, crX=null, adX=null;
   rows.forEach(items=>{ items.forEach(it=>{ const t=it.s.toLowerCase();
     if(dbX===null && /(debit|डेबिट|\bdr\.?\b|due)/.test(t)) dbX=it.x;
     if(crX===null && /(credit|क्रेडिट|\bcr\.?\b|paid)/.test(t)) crX=it.x;
+    if(adX===null && /(address|पता|\baddr\b|village|गाँव|गांव|place|area)/.test(t)) adX=it.x;
   }); });
   const out={};
   rows.forEach(items=>{
@@ -933,9 +950,21 @@ function tvExtractParties(rows){
     /* पहला item अगर सिर्फ़ छोटा serial number है तो हटाओ */
     if(items.length>1 && /^\d{1,4}\.?$/.test(items[0].s.trim())) items.shift();
     const nums=items.filter(it=>isNum(it.s));
-    const name=items.filter(it=>!isNum(it.s)).map(it=>it.s).join(' ')
-      .replace(/[|_]+/g,' ').replace(/\s+/g,' ').trim();
-    if(!name || !nums.length) return;
+    const texts=items.filter(it=>!isNum(it.s));
+    if(!texts.length || !nums.length) return;
+    /* नाम + पता अलग करो — header में Address column मिले तो x से, नहीं तो सबसे बड़े gap से */
+    let name='', address='';
+    if(adX!==null){
+      name   =clean(texts.filter(t=>t.x< adX-15).map(t=>t.s).join(' '));
+      address=clean(texts.filter(t=>t.x>=adX-15).map(t=>t.s).join(' '));
+      if(!name){ name=address; address=''; }
+    } else if(texts.length>1){
+      let gi=-1,g=0;
+      for(let i=1;i<texts.length;i++){ const gap=texts[i].x-texts[i-1].x; if(gap>g){ g=gap; gi=i; } }
+      if(g>40){ name=clean(texts.slice(0,gi).map(t=>t.s).join(' ')); address=clean(texts.slice(gi).map(t=>t.s).join(' ')); }
+      else name=clean(texts.map(t=>t.s).join(' '));
+    } else name=clean(texts[0].s);
+    if(!name) return;
     if(/total|grand|balance|opening|closing|page|debit|credit|amount|particular|statement|ledger|टोटल|कुल|बैलेंस|खाता/i.test(name)) return;
     if(name.replace(/[^A-Za-z\u0900-\u097F]/g,'').length<2) return;
     let debit=0, credit=0;
@@ -946,7 +975,8 @@ function tvExtractParties(rows){
     else debit=num(nums[0].s);
     if(debit<=0 && credit<=0) return;
     const k=tvK(name);
-    if(!out[k]) out[k]={key:k, name, debit:0, credit:0};
+    if(!out[k]) out[k]={key:k, name, address, debit:0, credit:0};
+    if(address && !out[k].address) out[k].address=address;
     out[k].debit+=debit; out[k].credit+=credit;
   });
   return Object.values(out);
@@ -996,27 +1026,50 @@ function tvUploadFile(mode,kind){
   });
   inp.click();
 }
-/* --- UPLOAD preview → save --- */
+/* --- UPLOAD preview — नाम/पता editable + ✖ delete → final submit पर save --- */
 function tvUploadPreview(kind,parties,fname){
-  const rowsHTML=parties.map((p,i)=>`<tr>
-    <td>${i+1}</td><td>${tvE(p.name)}</td>
-    <td class="n">${p.debit>0?'₹'+tvF(p.debit):'—'}</td>
-    <td class="n">${p.credit>0?'₹'+tvF(p.credit):'—'}</td></tr>`).join('');
-  const tD=parties.reduce((a,p)=>a+p.debit,0), tC=parties.reduce((a,p)=>a+p.credit,0);
+  const list=parties.map(p=>Object.assign({del:false},p));
+  const tD=()=>list.filter(p=>!p.del).reduce((a,p)=>a+p.debit,0);
+  const tC=()=>list.filter(p=>!p.del).reduce((a,p)=>a+p.credit,0);
+  const nA=()=>list.filter(p=>!p.del).length;
+  const rowsHTML=()=>list.map((p,i)=>`<tr data-r="${i}" style="${p.del?'opacity:.35;text-decoration:line-through;':''}">
+      <td>${i+1}</td>
+      <td><input data-nm="${i}" value="${tvE(p.name)}" ${p.del?'disabled':''} style="width:110px;font-size:11.5px;padding:3px 4px;border:1px solid #cbd3e0;border-radius:6px;font-weight:700;">
+        <input data-ad="${i}" value="${tvE(p.address||'')}" placeholder="पता" ${p.del?'disabled':''} style="width:90px;font-size:10.5px;padding:2px 4px;border:1px solid #dde4ee;border-radius:6px;margin-top:2px;"></td>
+      <td class="n">${p.debit>0?'₹'+tvF(p.debit):'—'}</td>
+      <td class="n">${p.credit>0?'₹'+tvF(p.credit):'—'}</td>
+      <td><button data-del="${i}" style="border:none;background:${p.del?'#2ecc71':'#ffebee'};color:${p.del?'#fff':'#c0392b'};border-radius:7px;padding:3px 8px;font-weight:900;cursor:pointer;">${p.del?'↩':'✖'}</button></td>
+    </tr>`).join('');
   popup({ title:'📤 '+(kind==='cred'?'🟥 Creditors':'🟩 Debtors')+' — Upload Preview',
-    body:`<div class="pp-note">📄 <b>${tvE(fname)}</b> — ${parties.length} party मिली · Debit=<b>Due</b> · Credit=<b>Paid</b><br>✓ Save दबाने पर सब ${kind==='cred'?'Creditors':'Debtors'} में जुड़ जाएगा</div>
-      <div class="tvup-sum"><span>👥 ${parties.length} party</span><span>💸 Due ₹${tvF(tD)}</span><span>✅ Paid ₹${tvF(tC)}</span></div>
-      <div style="max-height:46vh;overflow:auto;"><table class="tvup-tbl">
-        <tr><th>Sr</th><th>नाम</th><th>Due (Debit)</th><th>Paid (Credit)</th></tr>${rowsHTML}</table></div>`,
-    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tvup-sv">✓ Save All</button></div>`,
+    body:`<div class="pp-note">📄 <b>${tvE(fname)}</b> — नाम/पता ठीक कर सकते हैं · ✖ से हटा सकते हैं · Debit=<b>Due</b> · Credit=<b>Paid</b></div>
+      <div class="tvup-sum" id="tvup-sm"><span>👥 ${nA()} party</span><span>💸 Due ₹${tvF(tD())}</span><span>✅ Paid ₹${tvF(tC())}</span></div>
+      <div style="max-height:46vh;overflow:auto;"><table class="tvup-tbl" id="tvup-tb">
+        <tr><th>Sr</th><th>नाम / पता</th><th>Due</th><th>Paid</th><th></th></tr>${rowsHTML()}</table></div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tvup-sv">✓ Final Submit</button></div>`,
     onOpen(bk){
+      const wire=()=>{
+        bk.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
+          const i=+b.dataset.del; list[i].del=!list[i].del;
+          bk.querySelector('#tvup-tb').innerHTML='<tr><th>Sr</th><th>नाम / पता</th><th>Due</th><th>Paid</th><th></th></tr>'+rowsHTML();
+          bk.querySelector('#tvup-sm').innerHTML=`<span>👥 ${nA()} party</span><span>💸 Due ₹${tvF(tD())}</span><span>✅ Paid ₹${tvF(tC())}</span>`;
+          wire();
+        }));
+        bk.querySelectorAll('[data-nm]').forEach(x=>x.addEventListener('input',()=>{ list[+x.dataset.nm].name=x.value; }));
+        bk.querySelectorAll('[data-ad]').forEach(x=>x.addEventListener('input',()=>{ list[+x.dataset.ad].address=x.value; }));
+      };
+      wire();
       bk.querySelector('#tvup-sv').addEventListener('click',()=>{
-        const all=tvArr(TV_MAN); const dt=tvToday(), ts=tvNowTS();
-        parties.forEach(p=>{ all.push({kind, name:p.name, address:'', mob:'',
-          due:p.debit, paid:p.credit, note:'PDF Upload', date:dt, ts, t:Date.now()}); });
-        tvSet(TV_MAN,all);
-        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors':'Creditors'), what:'PDF Upload', name:fname, neu:parties.length+' party', note:'Due ₹'+tvF(tD)+' · Paid ₹'+tvF(tC)});
-        closePopup(); tvRefresh(); tvRender(); toast('✔ '+parties.length+' party '+(kind==='cred'?'Creditors':'Debtors')+' में जुड़ गई');
+        const fin=list.filter(p=>!p.del && String(p.name).trim());
+        if(!fin.length){ toast('कोई party नहीं बची'); return; }
+        const dt=tvToday(), ts=tvNowTS(), t=Date.now();
+        /* हर party की अपनी sg_tvup_ key — database में name-by-name दिखेगा, वहीं से edit भी */
+        fin.forEach((p,i)=>{
+          tvSet('sg_tvup_'+kind+'_'+tvK(p.name).replace(/[^A-Z0-9\u0900-\u097F]+/g,'_')+'_'+(t+i),
+            {kind, name:String(p.name).trim(), address:String(p.address||'').trim(), mob:'',
+             due:p.debit, paid:p.credit, note:'PDF Upload — '+fname, date:dt, ts, t:t+i});
+        });
+        if(typeof logChange==='function') logChange({sec:(kind==='deb'?'Debtors':'Creditors'), what:'PDF Upload', name:fname, neu:fin.length+' party', note:'Due ₹'+tvF(tD())+' · Paid ₹'+tvF(tC())});
+        closePopup(); tvRefresh(); tvRender(); toast('✔ '+fin.length+' party '+(kind==='cred'?'Creditors':'Debtors')+' में save हो गई');
       });
     }
   });
