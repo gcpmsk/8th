@@ -165,7 +165,7 @@ function tvBuild(force){
     o.mob   = tvMob(o.key);
     o.last  = o.due.concat(o.paid).reduce((a,x)=>Math.max(a,tvDV(x.date)),0);
     return o;
-  }).sort((a,b)=>b.bal-a.bal || a.name.localeCompare(b.name));
+  }).sort((a,b)=>a.name.localeCompare(b.name,'hi') || b.bal-a.bal);
 
   /* --- STAFF (attendance से) --- */
   const staff = Array.from(staffNames).filter(Boolean).map(key=>{
@@ -1079,12 +1079,24 @@ function tvCheckResult(kind,parties,fname){
   const D=tvBuild(true);
   const dbArr=(kind==='cred'?D.cred:D.deb);
   const dbMap={}; dbArr.forEach(p=>{ dbMap[p.key]=p; });
+  /* PDF में नाम+पता एक साथ लिखा होता है → database के नाम+पता से भी match करो */
+  const norm=s=>tvK(s).replace(/[^A-Z0-9\u0900-\u097F ]/g,'').replace(/\s+/g,' ').trim();
+  const dbFull=dbArr.map(p=>({p, full:norm(p.name+' '+(p.address||'')), nm:norm(p.name)}));
+  const findDb=(p)=>{
+    if(dbMap[p.key]) return dbMap[p.key];
+    const up=norm(p.name+' '+(p.address||'')), upN=norm(p.name);
+    let hit=dbFull.find(x=>x.full===up || x.full===upN);
+    if(!hit) hit=dbFull.find(x=>x.nm===upN || x.nm===up);
+    if(!hit) hit=dbFull.find(x=>x.nm.length>=3 && (up.indexOf(x.nm)===0 || up.startsWith(x.full)));
+    if(!hit) hit=dbFull.find(x=>x.nm.length>=3 && (up.includes(x.nm) || x.full.includes(upN)));
+    return hit?hit.p:null;
+  };
   const seen={};
   let nOK=0,nDiff=0,nNew=0;
   const rows=[];
   parties.forEach(p=>{
     const upBal=p.debit-p.credit;
-    const db=dbMap[p.key];
+    const db=findDb(p); if(db) p.key=db.key;
     if(db){ seen[p.key]=1;
       const same=Math.round(db.bal)===Math.round(upBal);
       if(same) nOK++; else nDiff++;

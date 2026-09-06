@@ -968,10 +968,12 @@
     /* ---------- 🔎 नाम + पता AUTO-SUGGEST (पूरे system के save नाम) ---------- */
     function arParties(){
         const map={};
-        const add=(n,a)=>{ n=String(n||'').trim(); if(!n) return;
+        const add=(n,a,nh,ah)=>{ n=String(n||'').trim(); if(!n) return;
             const k=n.toUpperCase().replace(/\s+/g,' ')+'|'+String(a||'').trim().toUpperCase();
-            if(!map[k]) map[k]={name:n,address:String(a||'').trim()};
-            else if(!map[k].address && a) map[k].address=String(a).trim(); };
+            if(!map[k]) map[k]={name:n,address:String(a||'').trim(),nameHi:String(nh||'').trim(),addressHi:String(ah||'').trim()};
+            else { if(!map[k].address && a) map[k].address=String(a).trim();
+                   if(!map[k].nameHi && nh) map[k].nameHi=String(nh).trim();
+                   if(!map[k].addressHi && ah) map[k].addressHi=String(ah).trim(); } };
         try{ const man=JSON.parse(localStorage.getItem('sg_tv_manual')||'[]');
             (Array.isArray(man)?man:[]).forEach(p=>add(p.name,p.address)); }catch(e){}
         for(let i=0;i<localStorage.length;i++){
@@ -980,7 +982,7 @@
                 if(k.indexOf('sg_nb_')===0){ const db=JSON.parse(localStorage.getItem(k))||{};
                     ['jama','nagad','maal'].forEach(s=>(db[s]||[]).forEach(x=>add(x.name,x.address)));
                 } else if(k.indexOf('sg_arcpt_')===0 || k.indexOf('sg_wrcpt_')===0){
-                    (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name||r.nameHi, r.address||r.addressHi));
+                    (JSON.parse(localStorage.getItem(k))||[]).forEach(r=>add(r.name||r.nameHi, r.address||r.addressHi, r.nameHi, r.addressHi));
                 }
             }catch(e){}
         }
@@ -1007,7 +1009,10 @@
             box.querySelectorAll('[data-i]').forEach(el=>el.addEventListener('mousedown',ev=>{
                 ev.preventDefault(); const p=hits[+el.dataset.i];
                 inp.value=p.name; if(addr) addr.value=p.address||'';
-                if(typeof autoTranslate==='function'){ autoTranslate('name'); autoTranslate('address'); }
+                /* पूरा नाम/पता हिंदी में — saved हिंदी हो तो वही, नहीं तो पूरे English text का translate */
+                const nh=document.getElementById(nameId+'-hi'), ah=document.getElementById(addrId+'-hi');
+                if(nh){ if(p.nameHi && !/^[A-Za-z0-9 .,()\-\/]*$/.test(p.nameHi)) nh.value=p.nameHi; else autoTranslate('name',true); }
+                if(ah){ if(p.addressHi && !/^[A-Za-z0-9 .,()\-\/]*$/.test(p.addressHi)) ah.value=p.addressHi; else autoTranslate('address',true); }
                 hide();
             }));
         });
@@ -1044,25 +1049,21 @@
     function formatSl(num) { return String(num).padStart(2, '0'); }
 
     // ====== HINDI TRANSLATION (Auto & Visible) ============
-    async function autoTranslate(field) {
-        clearTimeout(translateTimer);
-        translateTimer = setTimeout(async () => {
+    const translateTimers = {};
+    async function autoTranslate(field, now) {
+        clearTimeout(translateTimers[field]);
+        translateTimers[field] = setTimeout(async () => {
             const engText = document.getElementById(`inp-${field}`).value;
             const hiBox = document.getElementById(`inp-${field}-hi`);
-            
-            if(engText.trim() === '') {
-                hiBox.value = '';
-                return;
-            }
+            if(engText.trim() === '') { hiBox.value = ''; return; }
             try {
                 const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(engText)}`);
                 const data = await res.json();
-                hiBox.value = data[0][0][0]; // Update visible Hindi box
-            } catch (error) {
-                // If offline or error, fallback to English text inside the Hindi box
-                hiBox.value = engText;
-            }
-        }, 600); // 600ms delay to allow typing
+                /* पूरे text का translate — हर sentence जोड़ कर (सिर्फ़ पहला हिस्सा नहीं) */
+                if(document.getElementById(`inp-${field}`).value !== engText) return;
+                hiBox.value = (data[0]||[]).map(x=>x[0]||'').join('').trim() || engText;
+            } catch (error) { hiBox.value = engText; }
+        }, now?0:600);
     }
     // ==========================================
 
@@ -1209,8 +1210,27 @@
             if (partInput) {
                 partInput.value = val;
             }
+            const rt=document.getElementById(`rate-${targetRowIndex}`); const r=sgRateFor(val);
+            if(rt && r!==null && !rt.value){ rt.value=r; calculateRow(targetRowIndex); }
         }
     }
+    /* ---------- 💰 SET RATE से auto rate (Master → Area → Customer special) ---------- */
+    function sgRateFor(itemName){
+        try{
+            const R=JSON.parse(localStorage.getItem('sg_rates')||'{}'); if(!R||!R.master) return null;
+            const nm=(document.getElementById('inp-name')||{}).value||'', ad=(document.getElementById('inp-address')||{}).value||'';
+            const key=nm.trim().toUpperCase().replace(/\s+/g,' ');
+            const AR=[{c:'BKP',p:/बिक्रम|bikram/i},{c:'PLG',p:/पालीगंज|paliganj/i},{c:'NBT',p:/नौबतपुर|naubatpur/i},{c:'DLM',p:/दुल्हिन|dulhin/i},{c:'KJR',p:/कंचनपुर|kanchan/i},{c:'PTN',p:/पटना|patna/i}];
+            let area='OTHER'; const s=ad.trim(); if(s){ area=(AR.find(a=>a.p.test(s))||{}).c || s.split(/[\s,]+/)[0].toUpperCase().slice(0,10); }
+            const IT=[['gold','atta gold'],['a5','atta 5kg'],['a10','atta 10kg'],['a18','atta 18kg'],['besan','besan'],['sattu','sattu'],['chokar','chokar'],['wheat','wheat']];
+            const low=String(itemName||'').toLowerCase(); const it=IT.find(x=>low.indexOf(x[1])===0)||IT.find(x=>low.includes(x[1])); if(!it) return null;
+            const k=it[0]; const av=(R.area||{})[area]||{};
+            let base=(av[k]!==undefined&&av[k]!=='')?parseFloat(av[k]):parseFloat(R.master[k]); if(isNaN(base)) return null;
+            const sp=((R.cust||{})[key]||{})[k]; if(sp!==undefined&&sp!==''&&sp!==null) base=Math.max(0,base-(parseFloat(sp)||0));
+            return base>0?base:null;
+        }catch(e){ return null; }
+    }
+
 
     function calculateRow(idx) {
         const qty = parseFloat(document.getElementById(`qty-${idx}`).value) || 0;
