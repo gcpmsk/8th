@@ -48,7 +48,7 @@ async function sesSet(c, phone, st) {
      ON CONFLICT (phone) DO UPDATE SET state=EXCLUDED.state, updated_at=now()`, [phone, JSON.stringify(st)]);
 }
 async function log(c, phone, dir, body) {
-  try { await c.query('INSERT INTO wa_log (phone,dir,body) VALUES ($1,$2,$3::jsonb)', [phone, dir, JSON.stringify(body)]); } catch (_) {}
+  await c.query('INSERT INTO wa_log (phone,dir,body) VALUES ($1,$2,$3::jsonb)', [phone, dir, JSON.stringify(body)]);
 }
 
 /* ---------- date / money ---------- */
@@ -61,6 +61,7 @@ const cut = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n 
 
 /* ---------- Meta send ---------- */
 async function waSend(env, to, payload, c) {
+  if (!env.WA_TOKEN || !env.WA_PHONE_ID) throw new Error('WA_TOKEN / WA_PHONE_ID missing');
   const body = Object.assign({ messaging_product: 'whatsapp', to }, payload);
   const r = await fetch(`https://graph.facebook.com/v20.0/${env.WA_PHONE_ID}/messages`, {
     method: 'POST', headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' },
@@ -68,6 +69,7 @@ async function waSend(env, to, payload, c) {
   });
   const out = await r.json().catch(() => ({}));
   if (c) await log(c, to, r.ok ? 'out' : 'err', { req: body, res: out });
+  if (!r.ok || out.error) throw new Error(`WhatsApp API ${out.error?.code || r.status}: ${out.error?.message || 'Message rejected'}`);
   return out;
 }
 const text = (t) => ({ type: 'text', text: { body: t } });
@@ -129,14 +131,20 @@ async function findCust(c, phone) {
 function mainMenu(cust, cfg) {
   const hello = cust ? `🙏 नमस्ते *${cust.name}* जी!\n` : '🙏 नमस्ते!\n';
   const due = cust && cust.known ? `\n🔴 आपका बाक़ी: *${F(cust.due)}*\n` : '';
-  return list(`${hello}🌾 *${cfg.shop || 'SATYAM GOLD'}* में आपका स्वागत है${due}\nनीचे बटन दबा कर चुनें 👇`, [
-    { id: 'm_due', t: '💰 मेरा बाक़ी (Due)', d: 'अभी कितना बाक़ी है' },
-    { id: 'm_order', t: '🛒 नया Order करें', d: 'Atta · Sattu · Besan — touch कर के' },
+  return buttons(`${hello}🌾 *${cfg.shop || 'SATYAM GOLD'}* में आपका स्वागत है${due}\nनीचे बटन दबा कर चुनें 👇`, [
+    { id: 'm_due', t: 'मेरा बाक़ी (Due)' },
+    { id: 'm_order', t: 'नया Order करें' },
+    { id: 'm_more', t: 'More Services' }
+  ], cfg.shop || 'SATYAM GOLD');
+}
+function moreMenu() {
+  return list('हिसाब, आज का भाव या Rate Objection चुनें:', [
     { id: 'm_stmt', t: '📋 पूरा हिसाब (Statement)', d: 'पिछली receipts और payment' },
     { id: 'm_rate', t: '📈 आज का भाव', d: 'आपके लिए आज का rate' },
     { id: 'm_obj', t: '⚠️ Rate Objection', d: 'receipt में rate ज़्यादा लगा? यहाँ बताएँ' },
-    { id: 'm_talk', t: '📞 बात करें', d: 'मालिक से सीधे बात' }
-  ], { header: cfg.shop || 'SATYAM GOLD', btn: '📋 Menu', section: 'Main Menu', footer: 'कभी भी "Hi" लिखें → Menu' });
+    { id: 'm_talk', t: '📞 बात करें', d: 'मालिक से सीधे बात' },
+    { id: 'm_home', t: 'Main Menu' }
+  ], { header: 'More Services', btn: 'Services', section: 'Services', footer: 'कभी भी "Hi" लिखें → Menu' });
 }
 function itemMenu(cfg, R, cust) {
   const area = cust?.area || 'OTHER', ck = custKeyOf(cust?.name);
@@ -168,6 +176,8 @@ async function handle(env, c, phone, input) {
     await reset(); return say(mainMenu(cust, cfg));
   }
   if (/^(cancel|रद्द|x|✖)$/i.test(low) || low === 'cancel') { await reset(); return say(text('❌ रद्द कर दिया।\n"Hi" लिखें → Menu')); }
+
+  if (low === 'm_more') { await reset(); return say(moreMenu()); }
 
   /* --- नाम / पता (unknown number) --- */
   if (st.step === 'ask_name') {
@@ -220,18 +230,18 @@ async function handle(env, c, phone, input) {
   }
   if (low.startsWith('it_')) {
     const it = (cfg.items || []).find(x => 'it_' + x.id === low); if (!it) return say(itemMenu(cfg, R, cust));
-    st = { step: 'pack', item: it.id }; 
+    st = { step: 'pack', item: it.id, lines: st.lines || [] };
     if (it.sizes) { st.step = 'size'; await sesSet(c, phone, st);
       const r = rateFor(R, cust?.area || 'OTHER', custKeyOf(cust?.name), it.rk);
       return say(buttons(`*${it.name}* — packet size चुनें\n\n📦 200g = ${F(r * .2)} / packet\n📦 500g = ${F(r * .5)} / packet`,
         it.sizes.map(s => ({ id: 'sz_' + s.g, t: `${s.g}g` })).concat([{ id: 'm_order', t: '↩ Items' }])));
     }
     await sesSet(c, phone, st);
-    return askPack(say, cfg, R, cust, st);
+    return askPack(say, cfg, R, cust, st, c, phone);
   }
   if (low.startsWith('sz_') && st.item) {
     st.size = parseInt(low.slice(3), 10); st.step = 'pack'; await sesSet(c, phone, st);
-    return askPack(say, cfg, R, cust, st);
+    return askPack(say, cfg, R, cust, st, c, phone);
   }
   if ((low === 'pk_thaila' || low === 'pk_bora') && st.item) {
     st.pack = low === 'pk_bora' ? 'bora' : 'thaila'; st.step = 'qty'; await sesSet(c, phone, st);
@@ -255,6 +265,7 @@ async function handle(env, c, phone, input) {
     /* ---- Order Book में save (app की same key sg_ord_<date>) ---- */
     const date = todayIST(), key = 'sg_ord_' + date;
     await c.query('BEGIN');
+    let saved = false;
     try {
       const r = await c.query('SELECT value FROM sg_store WHERE key=$1 FOR UPDATE', [key]);
       const cur = (r.rows[0]?.value && !r.rows[0].value.__deleted) ? (r.rows[0].value.v || []) : [];
@@ -272,14 +283,19 @@ async function handle(env, c, phone, input) {
          ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at, synced_at=now()`,
         [key, JSON.stringify({ v: cur }), Date.now()]);
       await c.query('COMMIT');
+      saved = true;
       const tot = lines.reduce((a, l) => a + l.qty * l.rate, 0);
       const body = lines.map(l => `• ${l.name} — ${l.pack} (${l.qty} × ${F(l.rate)}) = ${F(l.qty * l.rate)}`).join('\n');
       await reset();
       await say(buttons(`✅ *Order No ${order.no} book हो गया!*\n\n${body}\n\n💰 कुल: *${F(tot)}*\n🕐 ${order.ts} · ${date}\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।`,
         [{ id: 'm_order', t: '🛒 और Order' }, { id: 'm_home', t: '🏠 Menu' }]));
-      if (cfg.owner) await waSend(env, cfg.owner, text(`🛒 *WhatsApp Order #${order.no}*\n👤 ${cust.name} · ${cust.address || ''}\n📱 +${phone}\n${body}\n💰 ${F(tot)}\n🕐 ${order.ts}`), c);
+      if (cfg.owner) await waSend(env, cfg.owner, text(`🛒 *WhatsApp Order #${order.no}*\n👤 ${cust.name} · ${cust.address || ''}\n📱 +${phone}\n${body}\n💰 ${F(tot)}\n🕐 ${order.ts}`), c).catch(() => {}); // Owner may be outside the 24-hour messaging window.
       return;
-    } catch (e) { await c.query('ROLLBACK'); await reset(); return say(text('❌ Order save नहीं हुआ, फिर से कोशिश करें। "Hi" → Menu')); }
+    } catch (e) {
+      if (saved) throw e; // A send failure must not claim the committed order was lost.
+      await c.query('ROLLBACK');
+      throw e;
+    }
   }
 
   /* ---------------- RATE OBJECTION ---------------- */
@@ -316,7 +332,7 @@ async function handle(env, c, phone, input) {
     await reset();
     await say(buttons(`📨 *Objection दर्ज हो गई*\n\n🧾 R.No ${ob.rno} · ${ob.rdate}\n📦 ${ob.item} ${ob.qty}\nReceipt rate: ${F(ob.oldRate)}  →  आपका rate: *${F(nr)}*\n\nमालिक देख कर जवाब देंगे 🙏`,
       [{ id: 'm_home', t: '🏠 Menu' }]));
-    if (cfg.owner) await waSend(env, cfg.owner, text(`⚠️ *Rate Objection*\n👤 ${cust.name} · ${cust.address || ''}\n🧾 R.No ${ob.rno} · ${ob.rdate}\n📦 ${ob.item} ${ob.qty} × ${F(ob.oldRate)} → चाहते हैं *${F(nr)}*\n\nApp → Order Book → 📣 Objection में देखें`), c);
+    if (cfg.owner) await waSend(env, cfg.owner, text(`⚠️ *Rate Objection*\n👤 ${cust.name} · ${cust.address || ''}\n🧾 R.No ${ob.rno} · ${ob.rdate}\n📦 ${ob.item} ${ob.qty} × ${F(ob.oldRate)} → चाहते हैं *${F(nr)}*\n\nApp → Home → WhatsApp → Objection में देखें`), c).catch(() => {});
     return;
   }
 
@@ -324,11 +340,15 @@ async function handle(env, c, phone, input) {
   await reset();
   return say(mainMenu(cust, cfg));
 }
-async function askPack(say, cfg, R, cust, st) {
+async function askPack(say, cfg, R, cust, st, c, phone) {
   const area = cust?.area || 'OTHER', ck = custKeyOf(cust?.name);
   const th = packInfo(cfg, R, area, ck, st.item, st.size, 'thaila');
   const bo = packInfo(cfg, R, area, ck, st.item, st.size, 'bora');
-  if (!bo || bo.mul <= 1) return say(text(`✏️ *${th.name}* — कितना *${th.unit}*?\n💵 Rate: ${F(th.rate)} / ${th.unit}\n\n👉 सिर्फ़ *संख्या* लिखें (जैसे 5)`)).then(() => null);
+  if (!bo || bo.mul <= 1) {
+    st.pack = 'thaila'; st.step = 'qty';
+    await sesSet(c, phone, st);
+    return say(text(`✏️ *${th.name}* — कितना *${th.unit}*?\n💵 Rate: ${F(th.rate)} / ${th.unit}\n\n👉 सिर्फ़ *संख्या* लिखें (जैसे 5)`));
+  }
   return say(buttons(`*${th.name}* — ${th.unit === 'packet' ? 'Packet' : 'थैला'} या बोरा?\n\n${th.unit === 'packet' ? '📦 Packet' : '👜 थैला'} = ${F(th.rate)}\n🧺 बोरा = ${F(bo.rate)}  (${bo.note})`,
     [{ id: 'pk_thaila', t: th.unit === 'packet' ? '📦 Packet' : '👜 थैला' }, { id: 'pk_bora', t: '🧺 बोरा' }, { id: 'm_order', t: '↩ Items' }]));
 }
@@ -338,36 +358,53 @@ async function askPack(say, cfg, R, cust, st) {
    ===================================================================== */
 export async function onRequestGet({ request, env }) {
   const u = new URL(request.url);
-  if (u.searchParams.get('hub.mode') === 'subscribe' && u.searchParams.get('hub.verify_token') === (env.WA_VERIFY_TOKEN || 'satyamgold')) {
+  if (env.WA_VERIFY_TOKEN && u.searchParams.get('hub.mode') === 'subscribe' && u.searchParams.get('hub.verify_token') === env.WA_VERIFY_TOKEN) {
     return new Response(u.searchParams.get('hub.challenge') || '', { status: 200 });
   }
   return new Response('Forbidden', { status: 403 });
 }
 
 export async function onRequestPost({ request, env }) {
-  let body; try { body = await request.json(); } catch (_) { return ok(); }
-  /* Meta direct webhook  OR  n8n WhatsApp Trigger का output ($json = changes[0].value)  OR  {messages:[...]} */
-  const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
-           || body?.messages?.[0]
-           || (Array.isArray(body) ? body[0]?.messages?.[0] : null)
-           || (body?.from && body?.type ? body : null);
-  if (!msg) return ok({ ignored: true });
-  let c;
+  const fail = (error, status) => new Response(JSON.stringify({ ok: false, error }), { status, headers: J });
+  let body;
+  try { body = await request.json(); } catch (_) { return fail('Invalid JSON body', 400); }
+  // Meta envelope, n8n Trigger output, arrays and a single message are supported.
+  const values = (Array.isArray(body) ? body : [body]).flatMap(b =>
+    b?.entry ? b.entry.flatMap(e => (e.changes || []).map(ch => ch.value)) : [b]);
+  const messages = values.flatMap(v => v?.messages || (v?.from && v?.type ? [v] : []))
+    .filter(m => m?.from && ['text', 'interactive', 'button'].includes(m.type));
+  if (!messages.length) return ok({ ignored: true }); // Delivery/read statuses must not reply.
+  if (!env.WA_TOKEN || !env.WA_PHONE_ID) return fail('WA_TOKEN / WA_PHONE_ID missing in deployed app', 503);
+  let c, current, processed = 0, duplicates = 0;
   try {
     c = await db(env);
-    const phone = String(msg.from || '');
-    let input = '';
-    if (msg.type === 'text') input = msg.text?.body || '';
-    else if (msg.type === 'interactive') input = msg.interactive?.list_reply?.id || msg.interactive?.button_reply?.id || '';
-    else if (msg.type === 'button') input = msg.button?.payload || msg.button?.text || '';
-    await log(c, phone, 'in', { type: msg.type, input, id: msg.id });
-    /* डुप्लीकेट webhook (Meta दोबारा भेजता है) */
-    const dup = await c.query(`SELECT 1 FROM wa_log WHERE dir='in' AND body->>'id'=$1 LIMIT 2`, [msg.id || '']);
-    if (dup.rowCount > 1) return ok({ dup: true });
-    /* qty / rate step में कोई भी text सीधे handle हो — बाक़ी में state-step check अंदर है */
-    await handle(env, c, phone, input);
+    await c.query("SET lock_timeout = '8s'");
+    for (const msg of messages) {
+      current = msg;
+      const phone = String(msg.from);
+      const input = msg.type === 'text' ? (msg.text?.body || '')
+        : msg.type === 'interactive' ? (msg.interactive?.list_reply?.id || msg.interactive?.button_reply?.id || '')
+        : (msg.button?.payload || msg.button?.text || '');
+      // Serialize a customer's simultaneous deliveries. Connection close also releases the lock.
+      await c.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', ['wa:' + phone]);
+      try {
+        if (msg.id) {
+          const dup = await c.query("SELECT 1 FROM wa_log WHERE dir='processed' AND body->>'id'=$1 LIMIT 1", [msg.id]);
+          if (dup.rowCount) { duplicates++; continue; }
+        }
+        await log(c, phone, 'in', { type: msg.type, input, id: msg.id });
+        await handle(env, c, phone, input);
+        // Only successful processing is deduplicated: a failed Hi can be retried.
+        if (msg.id) await log(c, phone, 'processed', { id: msg.id });
+        processed++;
+      } finally {
+        await c.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', ['wa:' + phone]);
+      }
+    }
   } catch (e) {
-    try { await log(c, msg.from, 'err', { error: String(e.message || e) }); } catch (_) {}
+    const error = String(e.message || e);
+    try { if (c) await log(c, current?.from, 'err', { error, id: current?.id }); } catch (_) {}
+    return fail(error, 502); // n8n must show database/token/Meta errors, never a fake success.
   } finally { try { await c?.end(); } catch (_) {} }
-  return ok();
+  return ok({ processed, duplicates });
 }

@@ -1,7 +1,7 @@
 /* =====================================================================
    SATYAM GOLD — WhatsApp Admin (app side)
    1) sg_wa_cust  — हर debtor का summary (mobile → name, due, receipts) → bot इसे पढ़ता है
-   2) Order Book में 📣 Objection button → customer के rate-objection देखें,
+   2) Home → WhatsApp → Objection: customer के rate-objection देखें,
       customer का rate रखें / अपना नया rate भरें / deny करें → WhatsApp पर जवाब जाता है,
       rate बदला तो receipt + debtor में पुराना amount कट, नया amount (timestamp + WA) के साथ
    ===================================================================== */
@@ -104,7 +104,7 @@ function waApplyRate(o,rate){
   return {oldTotal,newTotal,due};
 }
 
-/* ---------- Order Book header में 📣 button ---------- */
+/* ---------- Standalone Home tile, like Notebook / Order Book ---------- */
 (function(){
   const css=document.createElement('style');
   css.textContent=`.wa-ob{border:1px solid #e0d6b5;border-radius:12px;padding:10px 12px;margin:8px 0;background:#fffdf5;font-size:14px}
@@ -127,11 +127,13 @@ function waApplyRate(o,rate){
   }
   window.waMainPopup=waMainPopup;
   const wire=()=>{
-    const top=document.querySelector('#orderbook-screen .ob-top'); if(!top||document.getElementById('wa-main-btn')) return;
-    const b=document.createElement('button'); b.className='nb-tool green'; b.id='wa-main-btn'; b.innerHTML='💬 WhatsApp';
+    const b=document.getElementById('wa-main-btn'); if(!b) return;
     b.addEventListener('click',waMainPopup);
-    top.insertBefore(b, top.querySelector('#ob-print-btn'));
-    const upd=()=>{ const n=waOpenCount(); b.innerHTML='💬 WhatsApp'+(n?`<span class="n">${n}</span>`:''); };
+    const upd=()=>{
+      const n=waOpenCount(), badge=b.querySelector('.n');
+      badge.textContent=String(n); badge.hidden=!n;
+      b.setAttribute('aria-label','WhatsApp — '+n+' open objections');
+    };
     upd(); setInterval(upd,5000);
   };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire); else wire();
