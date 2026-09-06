@@ -1,12 +1,13 @@
 -- =====================================================================
 -- SATYAM GOLD — WhatsApp Bot  (PostgreSQL)
--- पुरानी wa_log / wa_rates / wa_sessions tables हटा कर यह पूरा text
--- Adminer → SQL command में paste करके Execute करें (DB: postgres, Schema: public)
+-- पूरा text Adminer → SQL command में paste करके Execute करें.
+-- पुरानी tables / orders / receipts DELETE या DROP नहीं करने हैं.
+-- यह migration दोबारा चलाना सुरक्षित है (DB: postgres, Schema: public).
+-- n8n में wa_handle() नहीं: WhatsApp Trigger → HTTP Request → /api/wa.
 -- =====================================================================
 
-DROP TABLE IF EXISTS wa_rates;
-DROP TABLE IF EXISTS wa_sessions;
-DROP TABLE IF EXISTS wa_log;
+BEGIN;
+SET LOCAL search_path TO public;
 
 -- App का main store (पहले से हो तो कुछ नहीं होगा)
 CREATE TABLE IF NOT EXISTS sg_store (
@@ -18,24 +19,31 @@ CREATE TABLE IF NOT EXISTS sg_store (
 CREATE INDEX IF NOT EXISTS sg_store_updated_at_idx ON sg_store (updated_at);
 
 -- हर WhatsApp number की chat state (menu में कहाँ है, कौन सा item चुना, आदि)
-CREATE TABLE wa_sessions (
+CREATE TABLE IF NOT EXISTS wa_sessions (
     phone      TEXT PRIMARY KEY,                    -- 918252487551
     state      JSONB NOT NULL DEFAULT '{}'::jsonb,  -- {step, item, pack, cust:{name,address,key}}
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- हर आने/जाने वाला message (debug + record)
-CREATE TABLE wa_log (
+CREATE TABLE IF NOT EXISTS wa_log (
     id         BIGSERIAL PRIMARY KEY,
     phone      TEXT,
     dir        TEXT NOT NULL,          -- 'in' | 'out' | 'err'
     body       JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX wa_log_phone_idx ON wa_log (phone, created_at DESC);
+-- Compatible with old schemas using mobile/direction instead of phone/dir.
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS dir TEXT;
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS direction TEXT;
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS body JSONB;
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+CREATE INDEX IF NOT EXISTS wa_log_phone_idx ON wa_log (phone, created_at DESC);
 
 -- WhatsApp से आया order सीधे Order Book में  → key  sg_ord_<DD-MM-YYYY>   (app की same list)
--- Rate objection                              → key  sg_wa_obj             (app के Order Book में 📣 button से खुलता है)
+-- Rate objection                              → key  sg_wa_obj             (app: Home → WhatsApp → Objection)
 -- Customer summary (app हर 30 sec लिखता है)     → key  sg_wa_cust  { "8252487551": {name,address,area,due,receipts:[…]} }
 -- Item / packing settings (बदल सकते हैं)        → key  sg_wa_cfg
 INSERT INTO sg_store (key, value, updated_at) VALUES ('sg_wa_cfg', '{"v":{
@@ -59,16 +67,25 @@ ON CONFLICT (key) DO NOTHING;
 --   SELECT value FROM sg_store WHERE key LIKE 'sg_ord_%' ORDER BY updated_at DESC;
 
 -- =====================================================================
--- FIX (n8n error: column "mobile" of relation "wa_log" does not exist)
--- wa_log में phone column है; n8n में mobile लिखा था → दोनों नाम चलेंगे.
--- सिर्फ़ यह हिस्सा दोबारा paste कर सकते हैं (बाकी tables को कुछ नहीं होगा).
+-- FIX: mobile / direction missing. Both old and new column names work.
+-- This fixes the log schema, NOT the old SQL-only wa_handle() bot.
+-- Use the JavaScript webhook for interactive WhatsApp buttons.
 -- =====================================================================
-ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS mobile TEXT;
 ALTER TABLE wa_log ALTER COLUMN dir SET DEFAULT 'in';
 CREATE OR REPLACE FUNCTION wa_log_sync_phone() RETURNS trigger AS $$
 BEGIN
-  NEW.phone  := COALESCE(NEW.phone,  NEW.mobile);
-  NEW.mobile := COALESCE(NEW.mobile, NEW.phone);
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.phone IS DISTINCT FROM OLD.phone THEN NEW.mobile := NEW.phone;
+    ELSIF NEW.mobile IS DISTINCT FROM OLD.mobile THEN NEW.phone := NEW.mobile;
+    END IF;
+    IF NEW.dir IS DISTINCT FROM OLD.dir THEN NEW.direction := NEW.dir;
+    ELSIF NEW.direction IS DISTINCT FROM OLD.direction THEN NEW.dir := NEW.direction;
+    END IF;
+  END IF;
+  NEW.phone := COALESCE(NEW.phone, NEW.mobile);
+  NEW.mobile := NEW.phone;
+  NEW.direction := COALESCE(NEW.direction, NEW.dir, 'in');
+  NEW.dir := NEW.direction;
   IF NEW.body IS NOT NULL AND jsonb_typeof(NEW.body) <> 'object' THEN
     NEW.body := jsonb_build_object('text', NEW.body);
   END IF;
@@ -77,4 +94,17 @@ END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS wa_log_sync_phone_trg ON wa_log;
 CREATE TRIGGER wa_log_sync_phone_trg BEFORE INSERT OR UPDATE ON wa_log
   FOR EACH ROW EXECUTE FUNCTION wa_log_sync_phone();
-UPDATE wa_log SET mobile = phone WHERE mobile IS NULL;
+UPDATE wa_log
+SET phone = COALESCE(phone, mobile), mobile = COALESCE(phone, mobile),
+    dir = COALESCE(direction, dir, 'in'), direction = COALESCE(direction, dir, 'in')
+WHERE phone IS NULL OR mobile IS NULL OR dir IS NULL OR direction IS NULL;
+
+CREATE INDEX IF NOT EXISTS wa_log_processed_idx ON wa_log ((body->>'id'))
+  WHERE dir = 'processed';
+COMMIT;
+
+-- Verify these four columns exist; no customer data is returned.
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'wa_log'
+  AND column_name IN ('phone', 'mobile', 'dir', 'direction')
+ORDER BY column_name;

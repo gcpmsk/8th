@@ -5,5 +5,11 @@
   "description": "SATYAM GOLD — Digital Notebook (Cloudflare Pages + PostgreSQL sync)",
   "dependencies": {
     "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules --test whatsapp.test.mjs"
   }
 }
