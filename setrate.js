@@ -14,12 +14,18 @@ const SR_ITEMS=[
   {k:'wheat', t:'Wheat (₹/Bag)', m:'Wheat'}
 ];
 const SRS={mode:'all', area:'', q:''};
-function srLoad(){ try{ const o=JSON.parse(localStorage.getItem(SR_KEY)||'{}'); return Object.assign({master:{},area:{},cust:{}},o||{}); }catch(e){ return {master:{},area:{},cust:{}}; } }
+function srLoad(){ let R; try{ const o=JSON.parse(localStorage.getItem(SR_KEY)||'{}'); R=Object.assign({master:{},area:{},areaAdj:{},cust:{}},o||{}); }catch(e){ R={master:{},area:{},areaAdj:{},cust:{}}; }
+  /* migrate: पुराना area absolute rate → master से +/- (delta) — ताकि master बदले तो area भी बदले */
+  if(R.area && Object.keys(R.area).length){ R.areaAdj=R.areaAdj||{}; Object.keys(R.area).forEach(a=>{ const o=R.area[a]||{}; R.areaAdj[a]=R.areaAdj[a]||{}; Object.keys(o).forEach(k=>{ if(o[k]!=='' && o[k]!=null && R.areaAdj[a][k]===undefined){ const d=srN(o[k])-srN((R.master||{})[k]); if(d) R.areaAdj[a][k]=d; } }); }); R.area={}; try{ localStorage.setItem(SR_KEY,JSON.stringify(R)); }catch(e){} }
+  return R; }
+/* area का final rate = master ± area adj */
+function srAreaAdj(R,area,k){ const v=((R.areaAdj||{})[area]||{})[k]; return (v===undefined||v===''||v===null)?0:srN(v); }
+function srAreaBase(R,area,k){ return Math.max(0, srN((R.master||{})[k]) + srAreaAdj(R,area,k)); }
 function srSave(o){ localStorage.setItem(SR_KEY,JSON.stringify(o)); try{ if(typeof sgSyncPush==='function') sgSyncPush(); }catch(e){} }
 function srN(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
 /* effective rate of a customer for item k */
 function srRate(R,key,area,k){
-  const base = (R.area[area]&&R.area[area][k]!==undefined&&R.area[area][k]!=='') ? srN(R.area[area][k]) : srN((R.master||{})[k]);
+  const base = srAreaBase(R,area,k);
   const sp=(R.cust[key]||{})[k];
   if(sp!==undefined && sp!=='' && sp!==null) return {rate:Math.max(0,base-srN(sp)), less:srN(sp), base, special:true};
   return {rate:base, less:0, base, special:false};
@@ -55,9 +61,9 @@ function srRender(){
     let list=debs;
     if(SRS.mode==='area'){
       list=debs.filter(d=>d.area===SRS.area);
-      const av=R.area[SRS.area]||{};
-      html+=`<div class="sr-card area"><div class="sr-ttl">📍 AREA: <b>${tvE(SRS.area)}</b> <button class="tvx" id="sr-area-x">✖</button><small>Master price दिख रहा है — इस area के लिए बढ़ा/घटा सकते हैं</small></div>
-        ${srRateBoxes(SR_ITEMS.reduce((o,it)=>{ o[it.k]=(av[it.k]!==undefined&&av[it.k]!=='')?av[it.k]:(R.master[it.k]??''); return o; },{}),'', '')}
+      html+=`<div class="sr-card area"><div class="sr-ttl">📍 AREA: <b>${tvE(SRS.area)}</b> <button class="tvx" id="sr-area-x">✖</button><small>Master rate दिख रहा है — बीच वाले box में <b>+</b> (बढ़ाना) या <b>−</b> (घटाना) लिखें · Master बदलेगा तो area rate अपने आप बदलेगा</small></div>
+        <div class="sr-plist">${SR_ITEMS.map(it=>{ const m=srN(R.master[it.k]); const adj=srAreaAdj(R,SRS.area,it.k);
+          return `<div class="sr-prow"><span class="l">${it.t}</span><span class="b">Master ₹<b>${m||0}</b></span><span class="m">±</span><input type="number" step="any" inputmode="decimal" data-aadj="${it.k}" value="${adj||''}" placeholder="0"><span class="eq">= ₹<b data-afin="${it.k}">${srAreaBase(R,SRS.area,it.k)}</b></span></div>`; }).join('')}</div>
         <button class="tvbtn add" id="sr-save-area">💾 ${tvE(SRS.area)} Rate Save</button></div>`;
     }
     html+=`<div class="tvsearch"><span>🔍</span><input id="sr-q" placeholder="नाम / पता लिखें..." value="${tvE(SRS.q)}"></div>`;
@@ -79,7 +85,8 @@ function srRender(){
   el.querySelectorAll('.sr-tab').forEach(b=>b.addEventListener('click',()=>{ SRS.mode=b.dataset.mode; SRS.area=''; SRS.q=''; srRender(); }));
   el.querySelectorAll('[data-sarea]').forEach(b=>b.addEventListener('click',()=>{ SRS.area=b.dataset.sarea; srRender(); }));
   const ax=el.querySelector('#sr-area-x'); if(ax) ax.addEventListener('click',()=>{ SRS.area=''; srRender(); });
-  const sa=el.querySelector('#sr-save-area'); if(sa) sa.addEventListener('click',()=>{ const R2=srLoad(); const o={}; el.querySelectorAll('.sr-card.area input[data-k]').forEach(i=>{ if(i.value!=='' && srN(i.value)!==srN(R2.master[i.dataset.k])) o[i.dataset.k]=srN(i.value); }); R2.area[SRS.area]=o; srSave(R2); toast('📍 '+SRS.area+' rate save ✔ — इस area के सब customer को यही rate'); srRender(); });
+  el.querySelectorAll('[data-aadj]').forEach(i=>i.addEventListener('input',()=>{ const k=i.dataset.aadj; const f=el.querySelector(`[data-afin="${k}"]`); if(f) f.textContent=Math.max(0,srN(R.master[k])+srN(i.value)); }));
+  const sa=el.querySelector('#sr-save-area'); if(sa) sa.addEventListener('click',()=>{ const R2=srLoad(); const o={}; el.querySelectorAll('.sr-card.area input[data-aadj]').forEach(i=>{ if(i.value!=='' && srN(i.value)!==0) o[i.dataset.aadj]=srN(i.value); }); R2.areaAdj=R2.areaAdj||{}; if(Object.keys(o).length) R2.areaAdj[SRS.area]=o; else delete R2.areaAdj[SRS.area]; srSave(R2); toast('📍 '+SRS.area+' rate save ✔ — इस area के सब customer को यही rate'); srRender(); });
   const sq=el.querySelector('#sr-q'); if(sq) sq.addEventListener('input',()=>{ SRS.q=sq.value; const rows=el.querySelector('.sr-rows'); const q=sq.value.trim().toUpperCase(); el.querySelectorAll('.sr-row').forEach(r=>{ r.style.display=(!q||r.textContent.toUpperCase().includes(q))?'':'none'; }); });
   el.querySelectorAll('[data-setc]').forEach(b=>b.addEventListener('click',()=>srCustPopup(b.dataset.setc,b.dataset.area,b.dataset.nm)));
   /* highlight last special-set customer */

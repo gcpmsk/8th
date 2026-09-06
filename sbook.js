@@ -107,7 +107,8 @@ function sbJamaHTML(db,live){
    3) बिक्री नाम खाते  ← Atta Receipt (verify होने के बाद ही)
 ========================================================= */
 function sbBikriRows(){
-  const rc=loadArr(ARC_KEY(SB_DATE)).filter(r=>r.verified && !r.cancelled);
+  /* नाम में "cash" → वह रोकड + नगदी बिक्री में जाती है, बिक्री नाम खाते में नहीं */
+  const rc=loadArr(ARC_KEY(SB_DATE)).filter(r=>r.verified && !r.cancelled && !/cash/i.test(r.name||''));
   return rc.map(r=>{
     /* सिर्फ़ English नाम / पता दिखेगा — Hindi वाला नहीं */
     const nm=(r.name||'—'), ad=(r.address||'');
