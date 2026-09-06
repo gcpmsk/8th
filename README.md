@@ -515,7 +515,10 @@ More Services → हिसाब / आज का भाव / Rate Objection / �
 
 ## WhatsApp reply नहीं आ रहा — पूरा setup
 
-**Screenshot की वजह:** पुराना n8n Postgres node `SELECT wa_handle($1, $2) AS reply;` चलाता है और `wa_log.direction` missing पर रुकता है। यह पुराना SQL bot है; interactive menu का code `functions/api/wa.js` में है। सिर्फ़ column जोड़कर पुराने SQL bot को चलाना नया button वाला bot नहीं बनाता।
+**Screenshot की वजह:** पुराना n8n Postgres node `column "msg" of relation "wa_log" does not exist` पर रुकता है। नया `whatsapp-schema.sql` यह fix करता है: `wa_log` में `msg`/`reply` column + नया `wa_handle(phone, msg)` function (text-only fallback: Hi / 1-6 नंबर से जवाब)। पुराना `wa_handle` अपने-आप replace होता है — **कुछ DELETE/DROP नहीं करना**; Adminer के SQL editor में बस पुराना text हटाकर पूरा नया text paste → Execute।
+
+n8n के `Bot का जवाब (Postgres)` node में सिर्फ़ यह query रखें: `SELECT wa_handle('{{ $json.messages[0].from }}', '{{ $json.messages[0].text.body }}') AS reply;` और `WhatsApp पर भेजो` node में text = `{{ $json.reply }}`।
+इससे WhatsApp पर **लिखा हुआ** message काम करेगा। SBI जैसा **click/button** वाला menu सिर्फ़ नीचे वाले `/api/wa` path से मिलता है।
 
 ### 1. नया code deploy + SQL migration
 - GitHub PR merge करके Cloudflare Pages का production deployment पूरा होने दें। केवल branch push करना production deployment की पुष्टि नहीं है।

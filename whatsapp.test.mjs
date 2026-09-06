@@ -177,10 +177,21 @@ await test('verification requires explicit matching secret', async () => {
   assert.equal(await (await mod.namespace.onRequestGet({ request, env })).text(), '123');
   assert.equal((await mod.namespace.onRequestGet({ request, env: {} })).status, 403);
 });
-await test('WhatsApp tile belongs to Home, not Order Book header', async () => {
+await test('wa_handle() text fallback works for old n8n Postgres node (msg column)', async () => {
+  const r = await db.query("SELECT wa_handle('918252487551', 'Hi') AS reply");
+  assert.match(r.rows[0].reply, /स्वागत है[\s\S]*6️⃣ Rate Objection/);
+  assert.match((await db.query("SELECT wa_handle('918252487551', '1') AS reply")).rows[0].reply, /बाक़ी|खाते से जुड़ा नहीं/);
+  await db.query("INSERT INTO wa_log (mobile, direction, msg) VALUES ('91', 'in', 'x')");
+  const l = await db.query("SELECT phone, dir, body->>'text' AS t FROM wa_log WHERE msg='x'");
+  assert.deepEqual(l.rows[0], { phone: '91', dir: 'in', t: 'x' });
+});
+await test('WhatsApp tile on Home + 💬 WhatsApp (Objection) button in Order Book header', async () => {
   const html = await readFile(new URL('./index.html', import.meta.url), 'utf8');
   const admin = await readFile(new URL('./wa-admin.js', import.meta.url), 'utf8');
   assert.equal((html.match(/id="wa-main-btn"/g) || []).length, 1);
+  assert.equal((html.match(/id="ob-wa-btn"/g) || []).length, 1);
+  assert.ok(html.indexOf('id="ob-wa-btn"') > html.indexOf('id="orderbook-screen"'));
+  assert.ok(admin.includes("'ob-wa-btn'"));
   assert.ok(html.indexOf('id="wa-main-btn"') > html.indexOf('id="home-screen"'));
   assert.ok(html.indexOf('id="wa-main-btn"') < html.indexOf('id="notebook-screen"'));
   assert.ok(!admin.includes("querySelector('#orderbook-screen .ob-top')"));
