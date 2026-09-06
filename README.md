@@ -511,3 +511,9 @@ Hi → [💰 मेरा बाक़ी] [🛒 नया Order] [📋 पू�
 - **✓ Customer का rate रखें** / **✏️ मेरा rate लगाएँ** (box में नया rate भर कर) / **✖ Deny**
 - Rate बदला → receipt में item rate + total update, Debtor due में पुराना amount **कट** कर नया amount, `✏️ time (WA)` stamp
 - जवाब customer को WhatsApp पर अपने आप चला जाता है (`/api/wa-send`)
+
+## WhatsApp — n8n के बिना (recommended) / n8n के साथ
+- **Bot logic पूरी `functions/api/wa.js` में है** (SBI-style touch: List/Button). Meta → WhatsApp → Configuration → Callback URL = `https://<pages-domain>/api/wa`, Verify token = `WA_VERIFY_TOKEN`. फिर n8n की ज़रूरत नहीं.
+- **n8n रखना हो तो**: WhatsApp Trigger → **HTTP Request** node (POST `https://<pages-domain>/api/wa`, Body = JSON, `{{ $json }}`) — बस. Postgres / Send node न रखें (bot खुद reply + log करता है).
+- `wa_log` में `mobile` column error: `whatsapp-schema.sql` का आख़िरी **FIX** block Adminer → SQL command में paste करें.
+- Order Book → **💬 WhatsApp** button → उसके अंदर **📣 Objection**. Confirm हुआ order `sg_ord_<date>` में जाता है → Order Book में अपने-आप दिखता है.
