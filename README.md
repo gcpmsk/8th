@@ -482,3 +482,32 @@ SELECT key FROM sg_store WHERE key LIKE 'sg_nb_%' ORDER BY key;
 -- कुल कितनी row
 SELECT count(*) FROM sg_store;
 ```
+
+---
+
+## 📱 WhatsApp Bot (SBI जैसा — touch वाला)
+
+Files: `functions/api/wa.js` (webhook), `functions/api/wa-send.js` (app → customer message), `wa-admin.js` (app side), `whatsapp-schema.sql`
+
+### Setup
+1. **Postgres** — Adminer → SQL command में `whatsapp-schema.sql` का पूरा text paste → Execute
+   (पुरानी `wa_log / wa_rates / wa_sessions` हट कर नयी बनेंगी, `sg_wa_cfg` में item/packing setting आती है)
+2. **Cloudflare Pages → Settings → Variables**: `DATABASE_URL`, `WA_TOKEN`, `WA_PHONE_ID`, `WA_VERIFY_TOKEN`
+3. **Meta → WhatsApp → Configuration** → Callback URL `https://<domain>/api/wa`, Verify token = `WA_VERIFY_TOKEN`, subscribe `messages`
+4. App में Debtor का mobile (Tally → 📱) भरा हो — उसी number से customer पहचाना जाता है (`sg_wa_cust` app हर 30 sec लिखता है)
+
+### Customer flow (कुछ type नहीं — सिर्फ़ qty / rate की संख्या)
+```
+Hi → [💰 मेरा बाक़ी] [🛒 नया Order] [📋 पूरा हिसाब] [📈 आज का भाव] [⚠️ Rate Objection] [📞 बात करें]
+🛒 नया Order → Atta Gold / Atta 18kg / Atta 10kg / Atta 5kg / Sattu / Besan  (हर item के साथ rate)
+   Sattu / Besan → 200g / 500g
+   → [👜 थैला (या 📦 Packet)] [🧺 बोरा]  (दोनों का rate, 1 बोरा = कितना)
+   → सिर्फ़ संख्या (qty) → Confirm → Order Book (sg_ord_<date>) में सीधे आ जाता है, मालिक को WhatsApp भी
+⚠️ Rate Objection → अपनी receipt चुनें → item चुनें → सही rate (संख्या) → मालिक को WhatsApp + App में
+```
+
+### App side — Order Book → 📣 Objection
+- हर objection: receipt · item · qty × पुराना rate → customer का rate (box में)
+- **✓ Customer का rate रखें** / **✏️ मेरा rate लगाएँ** (box में नया rate भर कर) / **✖ Deny**
+- Rate बदला → receipt में item rate + total update, Debtor due में पुराना amount **कट** कर नया amount, `✏️ time (WA)` stamp
+- जवाब customer को WhatsApp पर अपने आप चला जाता है (`/api/wa-send`)
