@@ -111,8 +111,14 @@ WHERE phone IS NULL OR mobile IS NULL OR dir IS NULL OR direction IS NULL;
 -- (या: SELECT wa_handle('{{ $json.messages[0].from }}', '{{ $json.messages[0].text.body }}') AS reply;)
 -- ⚠️ Button/List वाला SBI-जैसा bot सिर्फ़ /api/wa (HTTP Request node) से मिलता है — README देखें.
 -- पुराना wa_handle अपने-आप replace हो जाता है; अलग से DELETE/DROP कुछ नहीं करना.
+-- ⚠️ "relation wa_log does not exist" = n8n credential दूसरे DATABASE से जुड़ा है.
+--    n8n → Credentials → Postgres account → Database नाम देखें, Adminer में वही DB खोलकर यह SQL चलाएँ.
+--    (अब function log fail होने पर भी reply देगा — error नहीं आएगा.)
 -- =====================================================================
-CREATE OR REPLACE FUNCTION wa_handle(p_phone TEXT, p_msg TEXT) RETURNS TEXT AS $$
+-- पुराना function (param नाम अलग हो सकते हैं) हटाकर नया बनाएँ — यह सिर्फ़ function है, data नहीं.
+DROP FUNCTION IF EXISTS public.wa_handle(TEXT, TEXT);
+CREATE OR REPLACE FUNCTION public.wa_handle(p_phone TEXT, p_msg TEXT) RETURNS TEXT
+LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
   m     TEXT  := lower(btrim(COALESCE(p_msg, '')));
   p10   TEXT  := right(regexp_replace(COALESCE(p_phone, ''), '\D', '', 'g'), 10);
@@ -120,11 +126,13 @@ DECLARE
   owner TEXT; lines TEXT; reply TEXT;
   menu  TEXT := E'नीचे नंबर लिखकर भेजें 👇\n1️⃣ मेरा बाक़ी (Due)\n2️⃣ नया Order\n3️⃣ पूरा हिसाब\n4️⃣ आज का भाव\n5️⃣ मालिक से बात\n6️⃣ Rate Objection\n\n"Hi" → Menu';
 BEGIN
-  SELECT value->'v'->p10 INTO cust  FROM sg_store WHERE key = 'sg_wa_cust';
-  SELECT value->'v'       INTO cfg   FROM sg_store WHERE key = 'sg_wa_cfg';
-  SELECT value->'v'       INTO rates FROM sg_store WHERE key = 'sg_rates';
-  owner := right(COALESCE(cfg->>'owner', ''), 10);
-  INSERT INTO wa_log (phone, dir, body, msg) VALUES (p_phone, 'in', jsonb_build_object('text', p_msg, 'via', 'wa_handle'), p_msg);
+  -- Data पढ़ना: table न हो तो भी reply जाएगा (error नहीं)
+  BEGIN
+    SELECT value->'v'->p10 INTO cust  FROM public.sg_store WHERE key = 'sg_wa_cust';
+    SELECT value->'v'       INTO cfg   FROM public.sg_store WHERE key = 'sg_wa_cfg';
+    SELECT value->'v'       INTO rates FROM public.sg_store WHERE key = 'sg_rates';
+  EXCEPTION WHEN OTHERS THEN cust := NULL; cfg := NULL; rates := NULL; END;
+  owner := right(COALESCE(cfg->>'owner', '918252487551'), 10);
 
   IF m = '1' OR m = 'due' THEN
     IF cust IS NULL THEN reply := 'ℹ️ आपका नंबर किसी खाते से जुड़ा नहीं है।' || E'\n📞 मालिक: +91 ' || owner;
@@ -147,15 +155,20 @@ BEGIN
   ELSIF m = '6' THEN
     reply := E'⚠️ Objection ऐसे लिखें: *Objection R.No 12 rate 320*\nमालिक देख कर जवाब देंगे 🙏';
   ELSIF m LIKE 'order%' OR m LIKE 'objection%' THEN
-    INSERT INTO wa_log (phone, dir, body, msg) VALUES (p_phone, 'owner', jsonb_build_object('text', p_msg, 'name', cust->>'name'), p_msg);
     reply := E'✅ मिल गया, मालिक को भेज दिया 🙏\n' || p_msg;
   ELSE
     reply := format(E'🙏 नमस्ते%s!\n🌾 *%s* में आपका स्वागत है\n\n%s',
       CASE WHEN cust IS NULL THEN '' ELSE ' *' || (cust->>'name') || '* जी' END, COALESCE(cfg->>'shop', 'SATYAM GOLD'), menu);
   END IF;
-  INSERT INTO wa_log (phone, dir, body, msg, reply) VALUES (p_phone, 'out', jsonb_build_object('text', reply), p_msg, reply);
+
+  -- Log: wa_log न हो / column न मिले तो भी reply रुकेगा नहीं
+  BEGIN
+    INSERT INTO public.wa_log (phone, dir, body, msg, reply)
+    VALUES (p_phone, CASE WHEN m LIKE 'order%' OR m LIKE 'objection%' THEN 'owner' ELSE 'in' END,
+            jsonb_build_object('text', p_msg, 'via', 'wa_handle', 'name', cust->>'name'), p_msg, reply);
+  EXCEPTION WHEN OTHERS THEN NULL; END;
   RETURN reply;
-END $$ LANGUAGE plpgsql;
+END $$;
 
 CREATE INDEX IF NOT EXISTS wa_log_processed_idx ON wa_log ((body->>'id'))
   WHERE dir = 'processed';
