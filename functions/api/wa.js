@@ -346,8 +346,12 @@ export async function onRequestGet({ request, env }) {
 
 export async function onRequestPost({ request, env }) {
   let body; try { body = await request.json(); } catch (_) { return ok(); }
-  const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!msg) return ok();
+  /* Meta direct webhook  OR  n8n WhatsApp Trigger का output ($json = changes[0].value)  OR  {messages:[...]} */
+  const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
+           || body?.messages?.[0]
+           || (Array.isArray(body) ? body[0]?.messages?.[0] : null)
+           || (body?.from && body?.type ? body : null);
+  if (!msg) return ok({ ignored: true });
   let c;
   try {
     c = await db(env);

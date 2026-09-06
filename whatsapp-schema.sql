@@ -57,3 +57,24 @@ ON CONFLICT (key) DO NOTHING;
 --   SELECT * FROM wa_log ORDER BY id DESC LIMIT 50;
 --   SELECT value FROM sg_store WHERE key = 'sg_wa_obj';
 --   SELECT value FROM sg_store WHERE key LIKE 'sg_ord_%' ORDER BY updated_at DESC;
+
+-- =====================================================================
+-- FIX (n8n error: column "mobile" of relation "wa_log" does not exist)
+-- wa_log में phone column है; n8n में mobile लिखा था → दोनों नाम चलेंगे.
+-- सिर्फ़ यह हिस्सा दोबारा paste कर सकते हैं (बाकी tables को कुछ नहीं होगा).
+-- =====================================================================
+ALTER TABLE wa_log ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE wa_log ALTER COLUMN dir SET DEFAULT 'in';
+CREATE OR REPLACE FUNCTION wa_log_sync_phone() RETURNS trigger AS $$
+BEGIN
+  NEW.phone  := COALESCE(NEW.phone,  NEW.mobile);
+  NEW.mobile := COALESCE(NEW.mobile, NEW.phone);
+  IF NEW.body IS NOT NULL AND jsonb_typeof(NEW.body) <> 'object' THEN
+    NEW.body := jsonb_build_object('text', NEW.body);
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS wa_log_sync_phone_trg ON wa_log;
+CREATE TRIGGER wa_log_sync_phone_trg BEFORE INSERT OR UPDATE ON wa_log
+  FOR EACH ROW EXECUTE FUNCTION wa_log_sync_phone();
+UPDATE wa_log SET mobile = phone WHERE mobile IS NULL;

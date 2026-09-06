@@ -113,14 +113,25 @@ function waApplyRate(o,rate){
   .wa-ob-b{margin-top:6px;line-height:1.5}.wa-ob-b .g{color:#1e8449}.wa-ob-r{color:#444;font-size:13px;margin-top:4px}
   .wa-ob-f{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.wa-ob-f input{width:110px;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:16px}
   .wa-ob-done{margin:14px 0 4px;font-weight:700;color:#888;border-top:1px dashed #ccc;padding-top:8px}
-  #wa-obj-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
+  #wa-main-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
   document.head.appendChild(css);
+  /* 💬 WhatsApp button → popup में 📣 Objection (और आज के WA orders) */
+  function waMainPopup(){
+    const n=waOpenCount();
+    let wa=0; try{ (JSON.parse(localStorage.getItem('sg_ord_'+todayStr()))||[]).forEach(o=>{ if(o.src==='wa'||o.wa||/\(WA\)/.test(o.tvEts||'')) wa++; }); }catch(e){}
+    popup({ title:'💬 WhatsApp', body:`<div style="display:flex;flex-direction:column;gap:10px;padding:6px 0">
+      <button class="nb-tool grey" id="wa-pp-obj" style="font-size:16px">📣 Objection${n?` <span class="n" style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:12px">${n}</span>`:''}</button>
+      <div style="font-size:14px;color:#555">आज WhatsApp से आये order: <b>${wa}</b> (Order Book में दिखते हैं)</div>
+      <div style="font-size:12px;color:#888">Customer confirm करता है → order सीधे Order Book (Postgres sg_ord_) में आता है.</div></div>`,
+      onOpen:(el)=>{ el.querySelector('#wa-pp-obj').addEventListener('click',()=>{ closePopup(); waObjPopup(); }); } });
+  }
+  window.waMainPopup=waMainPopup;
   const wire=()=>{
-    const top=document.querySelector('#orderbook-screen .ob-top'); if(!top||document.getElementById('wa-obj-btn')) return;
-    const b=document.createElement('button'); b.className='nb-tool grey'; b.id='wa-obj-btn'; b.innerHTML='📣 Objection';
-    b.addEventListener('click',waObjPopup);
+    const top=document.querySelector('#orderbook-screen .ob-top'); if(!top||document.getElementById('wa-main-btn')) return;
+    const b=document.createElement('button'); b.className='nb-tool green'; b.id='wa-main-btn'; b.innerHTML='💬 WhatsApp';
+    b.addEventListener('click',waMainPopup);
     top.insertBefore(b, top.querySelector('#ob-print-btn'));
-    const upd=()=>{ const n=waOpenCount(); b.innerHTML='📣 Objection'+(n?`<span class="n">${n}</span>`:''); };
+    const upd=()=>{ const n=waOpenCount(); b.innerHTML='💬 WhatsApp'+(n?`<span class="n">${n}</span>`:''); };
     upd(); setInterval(upd,5000);
   };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire); else wire();
