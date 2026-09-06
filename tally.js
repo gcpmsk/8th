@@ -25,6 +25,8 @@ const TV_MOB    = 'sg_mobiles';        // { NAMEKEY : "9999999999" }
 const TV_LIMIT  = 'sg_deb_limit';      // { NAMEKEY : 4 }
 const TV_SCRED  = 'sg_staff_credit';   // { NAMEKEY : { "08-2026": 12000 } }
 const TV_SCARRY = 'sg_staff_carry';    // { NAMEKEY : amount carried to next month }
+const TV_SPROF  = 'sg_staff_profile';  // { NAMEKEY : {address, mob, salary} }  — Staff (Cr) title पर click करके भरें
+function tvSProf(k){ return (tvJSON(TV_SPROF,{})||{})[k]||{}; }
 const TV_PROD   = 'sg_mk_products';    // ["Loading","Unloading",...]
 const TV_MAN    = 'sg_tv_manual';      // manual Debtor/Creditor parties
 function tvMob(k){ return (tvJSON(TV_MOB,{})||{})[k]||''; }
@@ -106,7 +108,7 @@ function tvBuild(force){
     /* नगद नाम खाते → creditor / staff को दिया हुआ payment */
     (db.nagad||[]).forEach(n=>{
       if(!n.name) return; const key=tvK(n.name);
-      const rec={date, amt:tvN(n.amount), cut:!!n.cut, ts:n.ts||'', mode:n.mode||'cash', item:n.item||''};
+      const rec={date, amt:tvN(n.amount), cut:!!n.cut, ts:n.ts||'', mode:n.mode||'cash', item:n.item||'', items:n.item||'', label:(n.mode==='home'?'Home':''), qty:n.qty, unit:n.qtyUnit||'', rate:n.rate, final:true, rdate:date};
       if(staffNames.has(key)){ (staffPaid[key]=staffPaid[key]||[]).push(rec); }
       if(cred[key]) cred[key].paid.push(rec);
       else if(!staffNames.has(key)){ const c=C(cred,n.name,n.address); if(c){ c.paid.push(rec); c.cats.pay=1; } }
@@ -172,11 +174,13 @@ function tvBuild(force){
     const orig=(tvArr('sg_staff')||[]).find(n=>tvK(n)===key)||key;
     const paid=(staffPaid[key]||[]);
     const cr=tvJSON(TV_SCRED,{})[key]||{};
+    const pf=tvSProf(key);
     const carry=tvN((tvJSON(TV_SCARRY,{})||{})[key]);
     const dueT=paid.filter(x=>!x.cut).reduce((a,x)=>a+x.amt,0);
-    const credT=Object.values(cr).reduce((a,x)=>a+tvN(x),0);
-    return {key,name:orig,address:'mill staff',due:paid,paid:[],dueT,credT,carry,
-      bal:credT+carry-dueT, mob:tvMob(key), area:'MILL', openBills:paid.length, cred:cr};
+    /* Credit = fix monthly salary (profile से) — नहीं भरा तो पुराना monthly credit */
+    const credT=tvN(pf.salary)>0 ? tvN(pf.salary) : Object.values(cr).reduce((a,x)=>a+tvN(x),0);
+    return {key,name:orig,address:pf.address||'mill staff',due:paid,paid:[],dueT,credT,carry,salary:tvN(pf.salary),
+      bal:credT+carry-dueT, mob:(pf.mob||tvMob(key)), area:'MILL', openBills:paid.length, cred:cr};
   }).sort((a,b)=>a.name.localeCompare(b.name));
 
   TV_CACHE={cred:finish(cred), deb:finish(deb), staff};
@@ -285,7 +289,8 @@ function tvRowTaps(x){
 /* title पर 3 बार click → Mobile add mode */
 let tvTitleN=0, tvTitleTm=null;
 function tvTitleTap(){
-  if(!['cred','deb','other','kbora','daal','roast','staff'].includes(TVS.view)) return;
+  if(TVS.view==='staff'){ tvStaffSetup(); return; }
+  if(!['cred','deb','other','kbora','daal','roast'].includes(TVS.view)) return;
   tvTitleN++; clearTimeout(tvTitleTm);
   tvTitleTm=setTimeout(()=>{
     if(tvTitleN>=3){ TVS.mobMode=!TVS.mobMode; toast(TVS.mobMode?'📱 Mobile Add ON — नाम पर click करें':'Mobile Add OFF'); tvRender(); }
@@ -646,17 +651,44 @@ function tvStaff(){
   const mk=(()=>{ const d=new Date(); return `${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; })();
   const rows= arr.length? arr.map((x,i)=>`<div class="tvrow staff ${x.bal<0?'lim':''}" data-open="${tvE(x.key)}" data-kind="staff">
       <div class="tvsr">${i+1}</div>
-      <div class="tvnm"><b>${tvE(x.name)}</b><i>(mill staff)</i><span class="tvmb">${x.mob?'mob- '+tvE(x.mob):'<em>mob- —</em>'}</span>
+      <div class="tvnm"><b>${tvE(x.name)}</b><i>(${tvE(x.address||'mill staff')})</i><span class="tvmb">${x.mob?'mob- '+tvE(x.mob):'<em>mob- —</em>'}</span>
         <span class="tvtags">${x.carry>0?`<span class="tg o">carry ₹${tvF(x.carry)}</span>`:''}</span></div>
       <div class="tvdue">₹${tvF(x.dueT)}<small>लिया</small></div>
-      <div class="tvpaid"><button class="crbtn" data-scred="${tvE(x.key)}">💰 ₹${tvF(x.credT)}</button><small>${tvE(mk)}</small></div>
+      <div class="tvpaid">₹${tvF(x.credT)}<small>${x.salary>0?'fix salary':tvE(mk)}</small></div>
     </div>`).join('') : `<div class="tvempty">— Attendance में नाम add करें —</div>`;
   return tvHead(TV_TITLES.staff,`
     ${TVS.mobMode?'<div class="tvmob">📱 Mobile Add मोड ON</div>':''}
     <div class="tvsearch"><span>🔍</span><input id="tv-search" placeholder="staff नाम search..."></div>
-    <div class="pp-note tvnote">नगद नाम खाते से staff को दिया पैसा/सामान <b>Due</b> में · महीने के आख़िर में <b>Credit</b> भर के हिसाब करें</div>
+    <div class="pp-note tvnote">ऊपर <b>👷 STAFF (Cr)</b> पर click → सब staff का पता · mobile · <b>Fix Monthly Salary</b> भरें · नगद नाम खाते से staff को दिया पैसा/सामान <b>Due</b> में दिखेगा</div>
     <div class="tvcolh"><span class="cn">Sr · नाम (mill staff)</span><span class="cd">Due (लिया)</span><span class="cp">Credit</span></div>`)
     +`<div id="tv-rows">${rows}</div>`;
+}
+/* 👷 STAFF (Cr) title click → सब staff की list: पता · mobile · fix monthly salary → Save → profile */
+function tvStaffSetup(){
+  const D=tvBuild(); const arr=D.staff;
+  if(!arr.length){ toast('Attendance में staff add करें'); return; }
+  const rows=arr.map((x,i)=>{ const pf=tvSProf(x.key);
+    return `<div class="sr-prow" style="flex-wrap:wrap;gap:6px;align-items:center;border-bottom:1px dashed #dde;padding:6px 0;" data-sk="${tvE(x.key)}">
+      <span class="l" style="min-width:150px;"><b>${i+1}. ${tvE(x.name)}</b></span>
+      <input type="text" data-sf="address" placeholder="पता" value="${tvE(pf.address||'')}" style="flex:1;min-width:120px;">
+      <input type="tel" data-sf="mob" inputmode="numeric" maxlength="12" placeholder="Mobile" value="${tvE(pf.mob||tvMob(x.key)||'')}" style="width:120px;">
+      <input type="number" data-sf="salary" inputmode="decimal" placeholder="Fix Salary ₹/माह" value="${tvN(pf.salary)||''}" style="width:130px;">
+    </div>`; }).join('');
+  popup({ title:'👷 STAFF — Profile (पता · Mobile · Fix Monthly Salary)',
+    body:`<div class="pp-note">हर staff का पता, mobile और <b>fix monthly salary</b> भरें → Save → Staff (Cr) में profile बन जाएगी</div><div class="sr-plist">${rows}</div>`,
+    foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-sps">✓ Save</button></div>`,
+    onOpen(bk){
+      bk.querySelector('#tv-sps').addEventListener('click',()=>{
+        const all=tvJSON(TV_SPROF,{})||{};
+        bk.querySelectorAll('[data-sk]').forEach(r=>{ const k=r.dataset.sk; const o={};
+          r.querySelectorAll('[data-sf]').forEach(i=>{ o[i.dataset.sf]=i.value.trim(); });
+          o.salary=tvN(o.salary); all[k]=o; if(o.mob) tvSetMob(k,o.mob); });
+        tvSet(TV_SPROF,all);
+        try{ if(typeof sgSyncPush==='function') sgSyncPush(); }catch(e){}
+        closePopup(); tvRefresh(); tvRender(); toast('👷 Staff profile save ✔');
+      });
+    }
+  });
 }
 function tvStaffCredit(key){
   const D=tvBuild(); const s=D.staff.find(x=>x.key===key); if(!s) return;
