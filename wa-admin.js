@@ -113,7 +113,7 @@ function waApplyRate(o,rate){
   .wa-ob-b{margin-top:6px;line-height:1.5}.wa-ob-b .g{color:#1e8449}.wa-ob-r{color:#444;font-size:13px;margin-top:4px}
   .wa-ob-f{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.wa-ob-f input{width:110px;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:16px}
   .wa-ob-done{margin:14px 0 4px;font-weight:700;color:#888;border-top:1px dashed #ccc;padding-top:8px}
-  #wa-main-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
+  #wa-main-btn .n,#ob-wa-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
   document.head.appendChild(css);
   /* 💬 WhatsApp button → popup में 📣 Objection (और आज के WA orders) */
   function waMainPopup(){
@@ -127,12 +127,13 @@ function waApplyRate(o,rate){
   }
   window.waMainPopup=waMainPopup;
   const wire=()=>{
-    const b=document.getElementById('wa-main-btn'); if(!b) return;
-    b.addEventListener('click',waMainPopup);
+    /* Home tile + Order Book header — दोनों जगह 💬 WhatsApp → 📣 Objection */
+    const bs=['wa-main-btn','ob-wa-btn'].map(id=>document.getElementById(id)).filter(Boolean); if(!bs.length) return;
+    bs.forEach(b=>b.addEventListener('click',waMainPopup));
     const upd=()=>{
-      const n=waOpenCount(), badge=b.querySelector('.n');
-      badge.textContent=String(n); badge.hidden=!n;
-      b.setAttribute('aria-label','WhatsApp — '+n+' open objections');
+      const n=waOpenCount();
+      bs.forEach(b=>{ const badge=b.querySelector('.n'); if(badge){ badge.textContent=String(n); badge.hidden=!n; }
+        b.setAttribute('aria-label','WhatsApp — '+n+' open objections'); });
     };
     upd(); setInterval(upd,5000);
   };
