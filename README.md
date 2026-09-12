@@ -515,10 +515,56 @@ More Services → हिसाब / आज का भाव / Rate Objection / �
 
 ## WhatsApp reply नहीं आ रहा — पूरा setup
 
-**Screenshot की वजह:** पुराना n8n Postgres node `column "msg" of relation "wa_log" does not exist` पर रुकता है। नया `whatsapp-schema.sql` यह fix करता है: `wa_log` में `msg`/`reply` column + नया `wa_handle(phone, msg)` function (text-only fallback: Hi / 1-6 नंबर से जवाब)। पुराना `wa_handle` अपने-आप replace होता है — **कुछ DELETE/DROP नहीं करना**; Adminer के SQL editor में बस पुराना text हटाकर पूरा नया text paste → Execute।
+## 🔘 SBI-जैसा Button/List bot — n8n + Postgres (सबसे आसान, code deploy नहीं चाहिए)
 
-n8n के `Bot का जवाब (Postgres)` node में सिर्फ़ यह query रखें: `SELECT wa_handle('{{ $json.messages[0].from }}', '{{ $json.messages[0].text.body }}') AS reply;` और `WhatsApp पर भेजो` node में text = `{{ $json.reply }}`।
-इससे WhatsApp पर **लिखा हुआ** message काम करेगा। SBI जैसा **click/button** वाला menu सिर्फ़ नीचे वाले `/api/wa` path से मिलता है।
+`whatsapp-schema.sql` का `wa_handle(phone, msg)` अब **पूरा WhatsApp JSON** (list / buttons / text) लौटाता है। n8n में सिर्फ़ 4 node:
+
+**Step A — Adminer → SQL command** में पूरा [whatsapp-schema.sql](./whatsapp-schema.sql) paste → Execute (पुराना editor text हटाएँ; DB की tables/data नहीं हटाना, दोबारा चलाना safe है)।
+⚠️ n8n credential का **Database नाम वही** हो जिसमें Adminer में SQL चलाया (n8n → Credentials → Postgres account → Database)। नहीं तो `relation "wa_log" does not exist` आता है।
+
+**Step B — n8n "सिर्फ़ Text Message?" (IF node)** को हटाएँ या condition ऐसी करें कि text **और** interactive दोनों पास हों। सबसे आसान: IF node हटा कर Trigger → Code node।
+
+**Step C — नया Code node "Input निकालो"** (Trigger के बाद, Postgres से पहले) — JavaScript में paste:
+```js
+const msg = $json.messages?.[0] || {};
+let input = msg.text?.body || '';
+if (msg.type === 'interactive') {
+  input = msg.interactive?.button_reply?.id || msg.interactive?.list_reply?.id || '';
+}
+return [{ json: { from: msg.from, input } }];
+```
+
+**Step D — "Bot का जवाब (Postgres)" node** — Operation: Execute Query
+```sql
+SELECT wa_handle($1, $2) AS reply;
+```
+Query Parameters: `{{ $json.from }},{{ $json.input }}`
+
+**Step E — "WhatsApp पर भेजो" को HTTP Request node से बदलें** (WhatsApp node interactive body नहीं भेज पाता):
+- Method: `POST`
+- URL: `https://graph.facebook.com/v20.0/<PHONE_NUMBER_ID>/messages` (Meta का phone-number ID, mobile नहीं)
+- Authentication: Header Auth → `Authorization: Bearer <WA_TOKEN>` (या Predefined: WhatsApp credential)
+- Send Body: ON → Body Content Type: **JSON** → Specify Body: **Using JSON** → JSON:
+```
+{{ $json.reply }}
+```
+(reply पहले से पूरा JSON है — `messaging_product`, `to`, `type`, `interactive` सब उसमें है।)
+
+Flow: `WhatsApp Trigger → Code (Input निकालो) → Postgres (wa_handle) → HTTP Request (graph.facebook.com)`
+
+### Customer को क्या दिखेगा
+- **Hi** → List menu: 💰 मेरा बाक़ी · 🛒 नया Order · 📋 पूरा हिसाब · 📈 आज का भाव · 📞 मालिक · ⚠️ Objection
+- **🛒 नया Order** → List: 🌾 Atta · 🥣 Sattu · 🟡 Besan · 🐄 Chokar
+  - **Atta** → List: Gold 23kg / 18kg / 10kg / 5kg (rate साथ में) → "कितने **बोरा**?" → सिर्फ़ संख्या लिखें
+  - **Sattu / Besan** → Button: 200g / 500g → Button: 👜 थैला / 🧺 बोरा → "कितने?" → संख्या
+  - **Chokar** → "कितने बोरा?" → संख्या
+  - हर बार **Confirm screen** — item, qty, `Rate ₹/बोरा`, `कुल ₹` (Set Rate में rate हो तो; नहीं तो "मालिक बताएँगे") → ✅ Confirm / ➕ और Item / ❌ Cancel
+  - Confirm → **Order Book** (`sg_ord_<date>`) में सीधे save + Order No + rate वाला summary
+- **Creditor** (गेहूँ देने वाले; app में मोबाइल लगा हो): Hi पर ही *आज गेहूँ का भाव ₹…/Bag* (Set Rate → Master → Wheat) और 📈 भाव में सिर्फ़ Wheat
+- Rate = Set Rate का Master → Area ± adj → Customer special (app वाला ही logic)
+- थैला/बोरा में कितने packet: `sg_wa_cfg.pk` (default: 200g → बोरा 50 / थैला 10; 500g → बोरा 20 / थैला 4) — Adminer में `UPDATE sg_store SET value = jsonb_set(value, '{v,pk,sattu,200,thaila}', '12') WHERE key='sg_wa_cfg';` जैसा बदलें
+
+पुराना text-only तरीक़ा (1-6 नंबर लिखना) भी काम करता है। नीचे वाला `/api/wa` (Cloudflare) path वैकल्पिक है।
 
 ### 1. नया code deploy + SQL migration
 - GitHub PR merge करके Cloudflare Pages का production deployment पूरा होने दें। केवल branch push करना production deployment की पुष्टि नहीं है।

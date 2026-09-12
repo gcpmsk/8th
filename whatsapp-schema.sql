@@ -58,6 +58,7 @@ INSERT INTO sg_store (key, value, updated_at) VALUES ('sg_wa_cfg', '{"v":{
     {"id":"sattu","name":"Sattu","rk":"sattu","sizes":[{"g":200,"bora":50},{"g":500,"bora":20}]},
     {"id":"besan","name":"Besan","rk":"besan","sizes":[{"g":200,"bora":50},{"g":500,"bora":20}]}
   ],
+  "pk":{"sattu":{"200":{"bora":50,"thaila":10},"500":{"bora":20,"thaila":4}},"besan":{"200":{"bora":50,"thaila":10},"500":{"bora":20,"thaila":4}}},
   "owner":"918252487551",
   "shop":"SATYAM GOLD"
 }}'::jsonb, (EXTRACT(EPOCH FROM now())*1000)::BIGINT)
@@ -105,69 +106,203 @@ SET phone = COALESCE(phone, mobile), mobile = COALESCE(phone, mobile),
 WHERE phone IS NULL OR mobile IS NULL OR dir IS NULL OR direction IS NULL;
 
 -- =====================================================================
--- wa_handle(phone, msg) — पुराने n8n workflow (Text Message? → Postgres → WhatsApp पर भेजो)
--- के लिए TEXT-only fallback bot. n8n node में यही रखें:
---     SELECT wa_handle($1, $2) AS reply;
--- (या: SELECT wa_handle('{{ $json.messages[0].from }}', '{{ $json.messages[0].text.body }}') AS reply;)
--- ⚠️ Button/List वाला SBI-जैसा bot सिर्फ़ /api/wa (HTTP Request node) से मिलता है — README देखें.
+-- wa_handle(phone, msg) — SBI-जैसा BUTTON / LIST bot (n8n के लिए)
+--   Postgres node:  SELECT wa_handle($1, $2) AS reply;
+--   reply = WhatsApp Cloud API का पूरा JSON body → HTTP Request node से भेजें (README देखें)
+--   Order flow: Atta(23/18/10/5 KG → बोरा) · Sattu/Besan(200g/500g → थैला/बोरा) · Chokar(बोरा)
+--   हर order पर rate के साथ confirmation; Creditor को गेहूँ (Wheat) का Master rate दिखता है
 -- पुराना wa_handle अपने-आप replace हो जाता है; अलग से DELETE/DROP कुछ नहीं करना.
--- ⚠️ "relation wa_log does not exist" = n8n credential दूसरे DATABASE से जुड़ा है.
---    n8n → Credentials → Postgres account → Database नाम देखें, Adminer में वही DB खोलकर यह SQL चलाएँ.
---    (अब function log fail होने पर भी reply देगा — error नहीं आएगा.)
 -- =====================================================================
--- पुराना function (param नाम अलग हो सकते हैं) हटाकर नया बनाएँ — यह सिर्फ़ function है, data नहीं.
+CREATE OR REPLACE FUNCTION public.wa_ist_date() RETURNS TEXT LANGUAGE sql AS $$ SELECT to_char(now() AT TIME ZONE 'Asia/Kolkata','DD-MM-YYYY') $$;
+CREATE OR REPLACE FUNCTION public.wa_ist_ts()   RETURNS TEXT LANGUAGE sql AS $$ SELECT to_char(now() AT TIME ZONE 'Asia/Kolkata','HH12:MI AM') $$;
+CREATE OR REPLACE FUNCTION public.wa_f(n NUMERIC) RETURNS TEXT LANGUAGE sql AS $$ SELECT '₹' || to_char(round(COALESCE(n,0)), 'FM999,999,999') $$;
+
+-- Rate: Master → Area ±adj → Customer special (app के sg_rates जैसा)
+CREATE OR REPLACE FUNCTION public.wa_rate(R JSONB, area TEXT, ckey TEXT, k TEXT) RETURNS NUMERIC LANGUAGE plpgsql AS $$
+DECLARE base NUMERIC; sp TEXT; BEGIN
+  base := COALESCE(NULLIF(R->'master'->>k,'')::NUMERIC,0) + COALESCE(NULLIF(R->'areaAdj'->area->>k,'')::NUMERIC,0);
+  IF NULLIF(R->'area'->area->>k,'') IS NOT NULL THEN base := (R->'area'->area->>k)::NUMERIC; END IF;
+  sp := NULLIF(R->'cust'->ckey->>k,''); IF sp IS NOT NULL THEN base := base - sp::NUMERIC; END IF;
+  RETURN GREATEST(0, base);
+EXCEPTION WHEN OTHERS THEN RETURN 0; END $$;
+
+-- WhatsApp JSON builders
+CREATE OR REPLACE FUNCTION public.wa_txt(p_to TEXT, body TEXT) RETURNS JSONB LANGUAGE sql AS $$
+  SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','text','text',jsonb_build_object('body',left(body,4000))) $$;
+CREATE OR REPLACE FUNCTION public.wa_btn(p_to TEXT, body TEXT, btns JSONB) RETURNS JSONB LANGUAGE sql AS $$
+  SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','interactive','interactive',jsonb_build_object(
+    'type','button','body',jsonb_build_object('text',left(body,1024)),
+    'action',jsonb_build_object('buttons',(SELECT jsonb_agg(jsonb_build_object('type','reply','reply',jsonb_build_object('id',b->>'id','title',left(b->>'t',20))))
+                                            FROM jsonb_array_elements(btns) WITH ORDINALITY AS x(b,o) WHERE o<=3)))) $$;
+CREATE OR REPLACE FUNCTION public.wa_list(p_to TEXT, body TEXT, btn TEXT, sect TEXT, rows_ JSONB) RETURNS JSONB LANGUAGE sql AS $$
+  SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','interactive','interactive',jsonb_build_object(
+    'type','list','body',jsonb_build_object('text',left(body,1024)),
+    'action',jsonb_build_object('button',left(btn,20),'sections',jsonb_build_array(jsonb_build_object('title',left(sect,24),
+      'rows',(SELECT jsonb_agg(jsonb_build_object('id',r->>'id','title',left(r->>'t',24)) || CASE WHEN r->>'d' IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('description',left(r->>'d',72)) END)
+              FROM jsonb_array_elements(rows_) WITH ORDINALITY AS x(r,o) WHERE o<=10)))))) $$;
+
 DROP FUNCTION IF EXISTS public.wa_handle(TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.wa_handle(p_phone TEXT, p_msg TEXT) RETURNS TEXT
 LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
   m     TEXT  := lower(btrim(COALESCE(p_msg, '')));
-  p10   TEXT  := right(regexp_replace(COALESCE(p_phone, ''), '\D', '', 'g'), 10);
-  cust  JSONB; cfg JSONB; rates JSONB;
-  owner TEXT; lines TEXT; reply TEXT;
-  menu  TEXT := E'नीचे नंबर लिखकर भेजें 👇\n1️⃣ मेरा बाक़ी (Due)\n2️⃣ नया Order\n3️⃣ पूरा हिसाब\n4️⃣ आज का भाव\n5️⃣ मालिक से बात\n6️⃣ Rate Objection\n\n"Hi" → Menu';
+  ph    TEXT  := regexp_replace(COALESCE(p_phone, ''), '\D', '', 'g');
+  p10   TEXT  := right(ph, 10);
+  cust JSONB; cfg JSONB; R JSONB; st JSONB := '{}'::jsonb; out JSONB;
+  owner TEXT; shop TEXT; area TEXT := 'OTHER'; ckey TEXT := ''; nm TEXT := ''; iscred BOOLEAN := false;
+  rate NUMERIC; wheat NUMERIC; q NUMERIC; tot NUMERIC; lines TEXT; n INT; mx INT := 0;
+  it TEXT; sz TEXT; pk TEXT; iname TEXT; unit TEXT; mul NUMERIC := 1; urate NUMERIC; pnote TEXT := '';
+  ord JSONB; cur JSONB; okey TEXT; ln JSONB; li JSONB; step TEXT;
+  main_rows JSONB;
 BEGIN
-  -- Data पढ़ना: table न हो तो भी reply जाएगा (error नहीं)
   BEGIN
-    SELECT value->'v'->p10 INTO cust  FROM public.sg_store WHERE key = 'sg_wa_cust';
-    SELECT value->'v'       INTO cfg   FROM public.sg_store WHERE key = 'sg_wa_cfg';
-    SELECT value->'v'       INTO rates FROM public.sg_store WHERE key = 'sg_rates';
-  EXCEPTION WHEN OTHERS THEN cust := NULL; cfg := NULL; rates := NULL; END;
-  owner := right(COALESCE(cfg->>'owner', '918252487551'), 10);
+    SELECT value->'v'->p10 INTO cust FROM sg_store WHERE key = 'sg_wa_cust';
+    SELECT value->'v'       INTO cfg  FROM sg_store WHERE key = 'sg_wa_cfg';
+    SELECT value->'v'       INTO R    FROM sg_store WHERE key = 'sg_rates';
+    SELECT state INTO st FROM wa_sessions WHERE phone = ph;
+  EXCEPTION WHEN OTHERS THEN NULL; END;
+  st := COALESCE(st, '{}'::jsonb); R := COALESCE(R, '{}'::jsonb); cfg := COALESCE(cfg, '{}'::jsonb);
+  owner := right(COALESCE(cfg->>'owner', '918252487551'), 10); shop := COALESCE(cfg->>'shop','SATYAM GOLD');
+  IF cust IS NOT NULL THEN nm := COALESCE(cust->>'name',''); area := COALESCE(cust->>'area','OTHER'); ckey := COALESCE(cust->>'key', upper(nm)); iscred := (cust->>'type') = 'cred'; END IF;
+  wheat := wa_rate(R, area, ckey, 'wheat');
+  step := COALESCE(st->>'step','');
+  BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'in', jsonb_build_object('text', p_msg, 'via', 'wa_handle'), p_msg); EXCEPTION WHEN OTHERS THEN NULL; END;
 
-  IF m = '1' OR m = 'due' THEN
-    IF cust IS NULL THEN reply := 'ℹ️ आपका नंबर किसी खाते से जुड़ा नहीं है।' || E'\n📞 मालिक: +91 ' || owner;
-    ELSE reply := format(E'💰 *%s* जी\n📍 %s\n\n🔴 कुल बाक़ी: *₹%s*', cust->>'name', COALESCE(cust->>'address',''), COALESCE(cust->>'due','0')); END IF;
-  ELSIF m = '3' THEN
-    IF cust IS NULL THEN reply := 'ℹ️ आपका खाता नहीं मिला।';
+  main_rows := '[{"id":"m_due","t":"💰 मेरा बाक़ी (Due)"},{"id":"m_order","t":"🛒 नया Order","d":"Atta · Sattu · Besan · Chokar"},{"id":"m_hisab","t":"📋 पूरा हिसाब"},{"id":"m_rate","t":"📈 आज का भाव"},{"id":"m_owner","t":"📞 मालिक से बात"},{"id":"m_obj","t":"⚠️ Rate Objection"}]'::jsonb;
+
+  -- ---------- number typed (qty) ----------
+  IF step = 'qty' AND m ~ '^\d+(\.\d+)?$' THEN
+    q := m::NUMERIC;
+    IF q <= 0 OR q > 500 THEN out := wa_txt(ph, '❌ सही संख्या लिखें (1 – 500)'); 
     ELSE
-      SELECT string_agg(format('🧾 %s · R.No %s = ₹%s', r->>'rdate', r->>'rno', r->>'total'), E'\n') INTO lines
-        FROM jsonb_array_elements(COALESCE(cust->'receipts', '[]'::jsonb)) r;
-      reply := format(E'📋 *%s* — हिसाब\n\n%s\n\n🔴 बाक़ी: *₹%s*', cust->>'name', COALESCE(lines, '—'), COALESCE(cust->>'due','0'));
+      it := st->>'item'; sz := st->>'size'; pk := COALESCE(st->>'pack','bora');
+      IF it = 'atta' THEN
+        iname := CASE sz WHEN 'gold' THEN 'Atta Gold 23kg' WHEN 'a18' THEN 'Atta 18kg' WHEN 'a10' THEN 'Atta 10kg' ELSE 'Atta 5kg' END;
+        rate := wa_rate(R, area, ckey, sz);
+        mul := CASE sz WHEN 'gold' THEN 1 WHEN 'a18' THEN 3 WHEN 'a10' THEN 5 ELSE 10 END;      -- 1 बोरा = ? थैला
+        unit := 'बोरा'; urate := rate * mul; pnote := CASE WHEN mul > 1 THEN '1 बोरा = ' || mul || ' थैला' ELSE '' END;
+      ELSIF it IN ('sattu','besan') THEN
+        iname := initcap(it) || ' ' || sz || 'g'; rate := wa_rate(R, area, ckey, it) * sz::NUMERIC / 1000;   -- 1 packet
+        mul := CASE WHEN pk = 'bora' THEN COALESCE((cfg->'pk'->it->sz->>'bora')::NUMERIC, CASE sz WHEN '200' THEN 50 ELSE 20 END)
+                    ELSE COALESCE((cfg->'pk'->it->sz->>'thaila')::NUMERIC, CASE sz WHEN '200' THEN 10 ELSE 4 END) END;
+        unit := CASE WHEN pk = 'bora' THEN 'बोरा' ELSE 'थैला' END; urate := rate * mul; pnote := '1 ' || unit || ' = ' || mul || ' packet';
+      ELSE
+        iname := 'Chokar'; rate := wa_rate(R, area, ckey, 'chokar'); mul := 1; unit := 'बोरा'; urate := rate;
+      END IF;
+      tot := q * urate;
+      st := st || jsonb_build_object('step','confirm','qty',q,'iname',iname,'unit',unit,'mul',mul,'prate',rate,'urate',urate,'note',pnote);
+      out := wa_btn(ph, format(E'🧾 *Order Confirm करें*\n\n📦 %s\n🔢 %s %s%s\n%s\n👤 %s · %s',
+              iname, q, unit, CASE WHEN pnote<>'' THEN ' (' || pnote || ')' ELSE '' END,
+              CASE WHEN urate > 0 THEN format(E'💵 Rate: %s / %s\n💰 कुल: *%s*', wa_f(urate), unit, wa_f(tot)) ELSE '💵 Rate: मालिक बताएँगे' END,
+              nm, COALESCE(cust->>'address','')),
+             '[{"id":"ok_order","t":"✅ Confirm"},{"id":"more_item","t":"➕ और Item"},{"id":"cancel","t":"❌ Cancel"}]'::jsonb);
     END IF;
-  ELSIF m = '4' THEN
-    SELECT string_agg(format('• %s: ₹%s', i->>'name', COALESCE(rates->'master'->>(i->>'rk'), '—')), E'\n') INTO lines
-      FROM jsonb_array_elements(COALESCE(cfg->'items', '[]'::jsonb)) i;
-    reply := E'📈 *आज का भाव*\n\n' || COALESCE(lines, '—');
-  ELSIF m = '5' THEN
-    reply := '📞 मालिक से बात करें: +91 ' || owner;
-  ELSIF m = '2' THEN
-    reply := E'🛒 Order ऐसे लिखें: *Order Atta Gold 5 बोरा*\nमालिक को पहुँच जाएगा 🙏';
-  ELSIF m = '6' THEN
-    reply := E'⚠️ Objection ऐसे लिखें: *Objection R.No 12 rate 320*\nमालिक देख कर जवाब देंगे 🙏';
-  ELSIF m LIKE 'order%' OR m LIKE 'objection%' THEN
-    reply := E'✅ मिल गया, मालिक को भेज दिया 🙏\n' || p_msg;
+
+  -- ---------- confirm ----------
+  ELSIF m IN ('ok_order','more_item') AND step = 'confirm' THEN
+    li := jsonb_build_object('name', st->>'iname', 'qty', (st->>'qty')::NUMERIC * (st->>'mul')::NUMERIC, 'rate', round((st->>'prate')::NUMERIC, 2)::TEXT,
+                             'pack', (st->>'qty') || ' ' || (st->>'unit'), 'note', COALESCE(st->>'note',''), 'amt', (st->>'qty')::NUMERIC * (st->>'urate')::NUMERIC);
+    ln := COALESCE(st->'lines','[]'::jsonb) || li;
+    IF m = 'more_item' THEN
+      st := jsonb_build_object('step','item','lines',ln);
+      out := wa_list(ph, '🛒 और कौन सा item?', '👇 Item चुनें', 'Items',
+        '[{"id":"i_atta","t":"🌾 Atta","d":"23kg Gold · 18kg · 10kg · 5kg"},{"id":"i_sattu","t":"🥣 Sattu","d":"200g / 500g"},{"id":"i_besan","t":"🟡 Besan","d":"200g / 500g"},{"id":"i_chokar","t":"🐄 Chokar","d":"बोरा"}]'::jsonb);
+    ELSE
+      okey := 'sg_ord_' || wa_ist_date();
+      SELECT COALESCE(value->'v','[]'::jsonb) INTO cur FROM sg_store s WHERE s.key = okey; cur := COALESCE(cur,'[]'::jsonb);
+      SELECT COALESCE(max((o->>'no')::INT),0) INTO mx FROM sg_store s, jsonb_array_elements(COALESCE(s.value->'v','[]'::jsonb)) o WHERE s.key LIKE 'sg_ord_%' AND (o->>'no') ~ '^\d+$';
+      ord := jsonb_build_object('id','w'||(EXTRACT(EPOCH FROM now())*1000)::BIGINT, 'no', lpad((mx+1)::TEXT,2,'0'), 'ts', wa_ist_ts(),
+        'name', nm, 'address', COALESCE(cust->>'address',''), 'wa', true, 'phone', ph,
+        'items', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC,'rate',rtrim(rtrim(l->>'rate','0'),'.'),'note',(l->>'pack') || CASE WHEN COALESCE(l->>'note','')<>'' THEN ' · '||(l->>'note') ELSE '' END)) FROM jsonb_array_elements(ln) l),
+        'ordered', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC)) FROM jsonb_array_elements(ln) l), 'deliv', '[]'::jsonb);
+      INSERT INTO sg_store (key, value, updated_at) VALUES (okey, jsonb_build_object('v', cur || ord), (EXTRACT(EPOCH FROM now())*1000)::BIGINT)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at, synced_at = now();
+      SELECT string_agg(format('• %s — %s%s', l->>'name', l->>'pack', CASE WHEN (l->>'amt')::NUMERIC > 0 THEN ' = ' || wa_f((l->>'amt')::NUMERIC) ELSE '' END), E'\n'), sum((l->>'amt')::NUMERIC) INTO lines, tot FROM jsonb_array_elements(ln) l;
+      st := '{}'::jsonb;
+      out := wa_btn(ph, format(E'✅ *Order No %s book हो गया!*\n\n%s\n%s🕐 %s · %s\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।', ord->>'no', lines,
+               CASE WHEN tot > 0 THEN '💰 कुल: *' || wa_f(tot) || E'*\n' ELSE '' END, ord->>'ts', wa_ist_date()),
+             '[{"id":"m_order","t":"🛒 और Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+      BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('order', ord, 'name', nm), 'ORDER #' || (ord->>'no')); EXCEPTION WHEN OTHERS THEN NULL; END;
+    END IF;
+
+  -- ---------- order flow ----------
+  ELSIF m IN ('m_order','2') THEN
+    st := jsonb_build_object('step','item','lines', COALESCE(st->'lines','[]'::jsonb));
+    out := wa_list(ph, '🛒 *नया Order*' || E'\nकौन सा item चाहिए?', '👇 Item चुनें', 'Items',
+      '[{"id":"i_atta","t":"🌾 Atta","d":"23kg Gold · 18kg · 10kg · 5kg"},{"id":"i_sattu","t":"🥣 Sattu","d":"200g / 500g"},{"id":"i_besan","t":"🟡 Besan","d":"200g / 500g"},{"id":"i_chokar","t":"🐄 Chokar","d":"बोरा"}]'::jsonb);
+  ELSIF m = 'i_atta' THEN
+    st := st || '{"step":"size","item":"atta"}'::jsonb;
+    out := wa_list(ph, '🌾 *Atta* — कौन सा size?', '👇 Size चुनें', 'Atta', jsonb_build_array(
+      jsonb_build_object('id','s_gold','t','Atta Gold 23kg','d', CASE WHEN wa_rate(R,area,ckey,'gold')>0 THEN wa_f(wa_rate(R,area,ckey,'gold'))||' / बोरा' ELSE 'बोरा' END),
+      jsonb_build_object('id','s_a18','t','Atta 18kg','d', CASE WHEN wa_rate(R,area,ckey,'a18')>0 THEN wa_f(wa_rate(R,area,ckey,'a18'))||' / थैला · 1 बोरा = 3 थैला' ELSE '1 बोरा = 3 थैला' END),
+      jsonb_build_object('id','s_a10','t','Atta 10kg','d', CASE WHEN wa_rate(R,area,ckey,'a10')>0 THEN wa_f(wa_rate(R,area,ckey,'a10'))||' / थैला · 1 बोरा = 5 थैला' ELSE '1 बोरा = 5 थैला' END),
+      jsonb_build_object('id','s_a5','t','Atta 5kg','d', CASE WHEN wa_rate(R,area,ckey,'a5')>0 THEN wa_f(wa_rate(R,area,ckey,'a5'))||' / थैला · 1 बोरा = 10 थैला' ELSE '1 बोरा = 10 थैला' END)));
+  ELSIF m IN ('s_gold','s_a18','s_a10','s_a5') AND (st->>'item') = 'atta' THEN
+    st := st || jsonb_build_object('step','qty','size',substr(m,3),'pack','bora');
+    out := wa_txt(ph, format(E'📦 *%s*\n\n🔢 कितने *बोरा* चाहिए? सिर्फ़ संख्या लिखें (जैसे: 5)',
+      CASE m WHEN 's_gold' THEN 'Atta Gold 23kg' WHEN 's_a18' THEN 'Atta 18kg' WHEN 's_a10' THEN 'Atta 10kg' ELSE 'Atta 5kg' END));
+  ELSIF m IN ('i_sattu','i_besan') THEN
+    it := substr(m,3); st := st || jsonb_build_object('step','size','item',it);
+    out := wa_btn(ph, format('%s *%s* — कौन सा packet?', CASE it WHEN 'sattu' THEN '🥣' ELSE '🟡' END, initcap(it)),
+      '[{"id":"g_200","t":"200g"},{"id":"g_500","t":"500g"}]'::jsonb);
+  ELSIF m IN ('g_200','g_500') AND (st->>'item') IN ('sattu','besan') THEN
+    st := st || jsonb_build_object('step','pack','size',substr(m,3));
+    out := wa_btn(ph, format('📦 *%s %sg* — थैला या बोरा?', initcap(st->>'item'), substr(m,3)),
+      '[{"id":"p_thaila","t":"👜 थैला"},{"id":"p_bora","t":"🧺 बोरा"}]'::jsonb);
+  ELSIF m IN ('p_thaila','p_bora') AND step = 'pack' THEN
+    st := st || jsonb_build_object('step','qty','pack',substr(m,3));
+    out := wa_txt(ph, format(E'📦 *%s %sg*\n\n🔢 कितने *%s* चाहिए? सिर्फ़ संख्या लिखें (जैसे: 2)', initcap(st->>'item'), st->>'size', CASE WHEN m='p_bora' THEN 'बोरा' ELSE 'थैला' END));
+  ELSIF m = 'i_chokar' THEN
+    st := st || '{"step":"qty","item":"chokar","pack":"bora"}'::jsonb;
+    out := wa_txt(ph, E'🐄 *Chokar*\n\n🔢 कितने *बोरा* चाहिए? सिर्फ़ संख्या लिखें (जैसे: 3)');
+  ELSIF m = 'cancel' THEN
+    st := '{}'::jsonb; out := wa_btn(ph, '❌ Order cancel हो गया।', '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+  ELSIF step = 'qty' THEN
+    out := wa_txt(ph, '🔢 कृपया सिर्फ़ संख्या लिखें (जैसे: 5) या *Hi* लिखकर Menu पर जाएँ');
+
+  -- ---------- info ----------
+  ELSIF m IN ('m_due','1','due') THEN
+    IF cust IS NULL THEN out := wa_btn(ph, E'ℹ️ आपका नंबर किसी खाते से जुड़ा नहीं है।\n📞 मालिक: +91 ' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+    ELSE out := wa_btn(ph, format(E'💰 *%s* जी\n📍 %s\n\n🔴 कुल बाक़ी: *%s*', nm, COALESCE(cust->>'address',''), wa_f((COALESCE(cust->>'due','0'))::NUMERIC)),
+           '[{"id":"m_hisab","t":"📋 पूरा हिसाब"},{"id":"m_order","t":"🛒 नया Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb); END IF;
+  ELSIF m IN ('m_hisab','3') THEN
+    IF cust IS NULL THEN out := wa_txt(ph, 'ℹ️ आपका खाता नहीं मिला।');
+    ELSE
+      SELECT string_agg(format('🧾 %s · R.No %s = %s', r->>'rdate', r->>'rno', wa_f((r->>'total')::NUMERIC)), E'\n') INTO lines FROM jsonb_array_elements(COALESCE(cust->'receipts','[]'::jsonb)) r;
+      out := wa_btn(ph, format(E'📋 *%s* — हिसाब\n\n%s\n\n🔴 बाक़ी: *%s*', nm, COALESCE(lines,'—'), wa_f((COALESCE(cust->>'due','0'))::NUMERIC)), '[{"id":"m_obj","t":"⚠️ Objection"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+    END IF;
+  ELSIF m IN ('m_rate','4') THEN
+    IF iscred THEN
+      lines := CASE WHEN wheat > 0 THEN '🌾 गेहूँ (Wheat): *' || wa_f(wheat) || ' / Bag*' ELSE '🌾 गेहूँ का भाव अभी set नहीं — मालिक से बात करें' END;
+    ELSE
+      SELECT string_agg(format('• %s: %s', x.t, CASE WHEN wa_rate(R,area,ckey,x.k) > 0 THEN wa_f(wa_rate(R,area,ckey,x.k)) || x.u ELSE '—' END), E'\n') INTO lines
+        FROM (VALUES ('gold','Atta Gold 23kg',' / बोरा'),('a18','Atta 18kg',' / थैला'),('a10','Atta 10kg',' / थैला'),('a5','Atta 5kg',' / थैला'),('sattu','Sattu',' / kg'),('besan','Besan',' / kg'),('chokar','Chokar',' / बोरा')) x(k,t,u);
+      IF wheat > 0 THEN lines := lines || E'\n• Wheat: ' || wa_f(wheat) || ' / Bag'; END IF;
+    END IF;
+    out := wa_btn(ph, E'📈 *आज का भाव*\n' || wa_ist_date() || E'\n\n' || COALESCE(lines,'—'), '[{"id":"m_order","t":"🛒 Order करें"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+  ELSIF m IN ('m_owner','5') THEN
+    out := wa_btn(ph, E'📞 मालिक से बात करें:\n+91 ' || owner || E'\nwa.me/91' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+  ELSIF m IN ('m_obj','6') THEN
+    out := wa_btn(ph, E'⚠️ *Rate Objection*\nऐसे लिखें: *Objection R.No 12 rate 320*\nमालिक देख कर जवाब देंगे 🙏', '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+  ELSIF m LIKE 'objection%' OR m LIKE 'order%' THEN
+    BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('text', p_msg, 'name', nm), p_msg); EXCEPTION WHEN OTHERS THEN NULL; END;
+    out := wa_btn(ph, E'✅ मिल गया, मालिक को भेज दिया 🙏\n' || p_msg, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+
+  -- ---------- main menu (Hi / कुछ भी) ----------
   ELSE
-    reply := format(E'🙏 नमस्ते%s!\n🌾 *%s* में आपका स्वागत है\n\n%s',
-      CASE WHEN cust IS NULL THEN '' ELSE ' *' || (cust->>'name') || '* जी' END, COALESCE(cfg->>'shop', 'SATYAM GOLD'), menu);
+    st := '{}'::jsonb;
+    out := wa_list(ph, format(E'🙏 नमस्ते%s!\n🌾 *%s* में आपका स्वागत है%s%s\n\nनीचे बटन दबा कर चुनें 👇',
+      CASE WHEN nm <> '' THEN ' *' || nm || '* जी' ELSE '' END, shop,
+      CASE WHEN cust IS NOT NULL AND NOT iscred AND COALESCE(cust->>'due','0')::NUMERIC > 0 THEN E'\n\n🔴 आपका बाक़ी: *' || wa_f((cust->>'due')::NUMERIC) || '*' ELSE '' END,
+      CASE WHEN iscred AND wheat > 0 THEN E'\n\n🌾 आज गेहूँ का भाव: *' || wa_f(wheat) || ' / Bag*' ELSE '' END),
+      '📋 Services', 'Services', main_rows);
   END IF;
 
-  -- Log: wa_log न हो / column न मिले तो भी reply रुकेगा नहीं
   BEGIN
-    INSERT INTO public.wa_log (phone, dir, body, msg, reply)
-    VALUES (p_phone, CASE WHEN m LIKE 'order%' OR m LIKE 'objection%' THEN 'owner' ELSE 'in' END,
-            jsonb_build_object('text', p_msg, 'via', 'wa_handle', 'name', cust->>'name'), p_msg, reply);
+    INSERT INTO wa_sessions (phone, state, updated_at) VALUES (ph, st, now()) ON CONFLICT (phone) DO UPDATE SET state = EXCLUDED.state, updated_at = now();
+    INSERT INTO wa_log (phone, dir, body, msg, reply) VALUES (ph, 'out', out, p_msg, COALESCE(out->'text'->>'body', out->'interactive'->'body'->>'text'));
   EXCEPTION WHEN OTHERS THEN NULL; END;
-  RETURN reply;
+  RETURN out::TEXT;
 END $$;
 
 CREATE INDEX IF NOT EXISTS wa_log_processed_idx ON wa_log ((body->>'id'))
