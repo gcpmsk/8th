@@ -1,6 +1,6 @@
 /* =====================================================================
    SATYAM GOLD — WhatsApp Admin (app side)
-   1) sg_wa_cust  — हर debtor का summary (mobile → name, due, receipts) → bot इसे पढ़ता है
+   1) sg_wa_cust  — हर debtor (+ creditor, type:'cred') का summary (mobile → name, due, receipts) → bot इसे पढ़ता है
    2) Home → WhatsApp → Objection: customer के rate-objection देखें,
       customer का rate रखें / अपना नया rate भरें / deny करें → WhatsApp पर जवाब जाता है,
       rate बदला तो receipt + debtor में पुराना amount कट, नया amount (timestamp + WA) के साथ
@@ -15,6 +15,11 @@ function waPublishCust(){
   try{
     if(typeof tvBuild!=='function') return;
     const D=tvBuild(true); const out={};
+    /* Creditor (गेहूँ देने वाले) भी — bot इन्हें Wheat का Master rate दिखाता है (type:'cred') */
+    (D.cred||[]).forEach(d=>{
+      const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
+      out[mob]={name:d.name, address:d.address||'', key:d.key, type:'cred', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:0, receipts:[], paid:[], t:Date.now()};
+    });
     (D.deb||[]).forEach(d=>{
       const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
       const receipts=(d.due||[]).filter(x=>x.src==='arcpt').sort((a,b)=>String(b.sdate).split('-').reverse().join('').localeCompare(String(a.sdate).split('-').reverse().join(''))).slice(0,10).map(x=>{
