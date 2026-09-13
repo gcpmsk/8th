@@ -132,12 +132,12 @@ CREATE OR REPLACE FUNCTION public.wa_txt(p_to TEXT, body TEXT) RETURNS JSONB LAN
   SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','text','text',jsonb_build_object('body',left(body,4000))) $$;
 CREATE OR REPLACE FUNCTION public.wa_btn(p_to TEXT, body TEXT, btns JSONB) RETURNS JSONB LANGUAGE sql AS $$
   SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','interactive','interactive',jsonb_build_object(
-    'type','button','body',jsonb_build_object('text',left(body,1024)),
+    'type','button','footer',jsonb_build_object('text','SATYAM GOLD | Customer Services'),'body',jsonb_build_object('text',left(body,1024)),
     'action',jsonb_build_object('buttons',(SELECT jsonb_agg(jsonb_build_object('type','reply','reply',jsonb_build_object('id',b->>'id','title',left(b->>'t',20))))
                                             FROM jsonb_array_elements(btns) WITH ORDINALITY AS x(b,o) WHERE o<=3)))) $$;
 CREATE OR REPLACE FUNCTION public.wa_list(p_to TEXT, body TEXT, btn TEXT, sect TEXT, rows_ JSONB) RETURNS JSONB LANGUAGE sql AS $$
   SELECT jsonb_build_object('messaging_product','whatsapp','to',p_to,'type','interactive','interactive',jsonb_build_object(
-    'type','list','body',jsonb_build_object('text',left(body,1024)),
+    'type','list','header',jsonb_build_object('type','text','text','SATYAM GOLD'),'footer',jsonb_build_object('text','अपनी service चुनें | Hi = Menu'),'body',jsonb_build_object('text',left(body,1024)),
     'action',jsonb_build_object('button',left(btn,20),'sections',jsonb_build_array(jsonb_build_object('title',left(sect,24),
       'rows',(SELECT jsonb_agg(jsonb_build_object('id',r->>'id','title',left(r->>'t',24)) || CASE WHEN r->>'d' IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('description',left(r->>'d',72)) END)
               FROM jsonb_array_elements(rows_) WITH ORDINALITY AS x(r,o) WHERE o<=10)))))) $$;
@@ -169,6 +169,128 @@ CREATE TABLE IF NOT EXISTS wa_decisions (
  last_error TEXT, meta_id TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Read the actual synced ledger on every request; never use the old 10-receipt cache.
+CREATE OR REPLACE FUNCTION public.wa_num(t TEXT) RETURNS NUMERIC LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN RETURN COALESCE(NULLIF(replace(t,',',''),'')::numeric,0);
+EXCEPTION WHEN invalid_text_representation THEN RETURN 0; END $$;
+CREATE OR REPLACE FUNCTION public.wa_party(x JSONB,cust JSONB) RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
+ SELECT NULLIF(cust->>'key','') IS NOT NULL
+   AND wa_norm(COALESCE(NULLIF(x->>'name',''),x->>'nameHi'))=wa_norm(cust->>'name')
+   AND (wa_norm(COALESCE(NULLIF(x->>'address',''),x->>'addressHi'))=''
+     OR wa_norm(COALESCE(NULLIF(x->>'address',''),x->>'addressHi'))=wa_norm(cust->>'address')) $$;
+CREATE OR REPLACE FUNCTION public.wa_is_creditor(cust JSONB) RETURNS BOOLEAN LANGUAGE sql AS $$
+ SELECT COALESCE(cust->>'type','')<>'deb'
+   AND (COALESCE(cust->>'type','')='cred' OR COALESCE((cust->>'isCreditor')::boolean,false))
+   -- A party saved in both ledgers gets debtor rates, never wheat.
+   AND NOT EXISTS(SELECT 1 FROM sg_store s CROSS JOIN LATERAL jsonb_array_elements(
+     CASE WHEN jsonb_typeof(s.value->'v')='array' THEN s.value->'v' ELSE '[]'::jsonb END) x
+     WHERE (s.key LIKE 'sg_arcpt_%' OR (s.key='sg_tv_manual' AND x->>'kind'='deb')) AND wa_party(x,cust))
+   AND NOT EXISTS(SELECT 1 FROM sg_store s CROSS JOIN LATERAL jsonb_array_elements(
+     COALESCE(s.value->'v'->'jama','[]'::jsonb)) x WHERE s.key LIKE 'sg_nb_%' AND wa_party(x,cust))
+   AND NOT EXISTS(SELECT 1 FROM sg_store s WHERE s.key LIKE 'sg_tvup_%'
+     AND s.value->'v'->>'kind'='deb' AND wa_party(s.value->'v',cust)) $$;
+
+CREATE OR REPLACE FUNCTION public.wa_ledger(cust JSONB) RETURNS JSONB
+LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE entries JSONB := '[]'; s RECORD; x JSONB; wh JSONB; d TEXT;
+  credit BOOLEAN := wa_is_creditor(cust); amount_ NUMERIC;
+  detail TEXT; label_ TEXT; charges NUMERIC; paid_ NUMERIC;
+BEGIN
+  IF NULLIF(cust->>'key','') IS NULL THEN RETURN jsonb_build_object('entries',entries,'charges',0,'paid',0,'balance',0); END IF;
+  FOR s IN SELECT key,value->'v' AS v FROM sg_store WHERE NOT COALESCE((value->>'__deleted')::boolean,false)
+    AND (key LIKE 'sg_arcpt_%' OR key LIKE 'sg_nb_%' OR key='sg_tv_manual' OR key LIKE 'sg_tvup_%') LOOP
+    IF s.key LIKE 'sg_arcpt_%' AND NOT credit AND jsonb_typeof(s.v)='array' THEN
+      FOR x IN SELECT value FROM jsonb_array_elements(s.v) LOOP
+        IF NOT wa_party(x,cust) THEN CONTINUE; END IF;
+        SELECT string_agg(format('%s | %s x %s = %s',i->>'name',i->>'qty',wa_f(wa_num(i->>'rate')),
+          wa_f(COALESCE(NULLIF(i->>'amount','')::numeric,wa_num(i->>'qty')*wa_num(i->>'rate')))),E'\n' ORDER BY n)
+          INTO detail FROM jsonb_array_elements(COALESCE(x->'items','[]')) WITH ORDINALITY a(i,n);
+        entries := entries || jsonb_build_object('date',substr(s.key,10),'label','Receipt #'||COALESCE(x->>'no','-'),
+          'details',COALESCE(detail,''),'amt',wa_num(COALESCE(NULLIF(x->>'tvAmt',''),x->>'total')),'kind','charge',
+          'cut',COALESCE((x->>'cancelled')::boolean,false) OR COALESCE((x->>'tvCut')::boolean,false));
+      END LOOP;
+    ELSIF s.key LIKE 'sg_nb_%' THEN
+      d := substr(s.key,7);
+      IF credit THEN
+        FOR x IN SELECT value FROM jsonb_array_elements(COALESCE(s.v->'maal','[]')) LOOP
+          IF NOT wa_party(x,cust) THEN CONTINUE; END IF;
+          SELECT r INTO wh FROM sg_store w CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.value->'v','[]')) r
+            WHERE w.key='sg_wrcpt_'||d AND wa_num(r->>'serial')=wa_num(x->>'serial') AND wa_num(x->>'serial')>0 LIMIT 1;
+          amount_ := CASE WHEN x->>'tvAmt' IS NOT NULL THEN wa_num(x->>'tvAmt')
+            WHEN x->>'kind'='simple' THEN COALESCE(NULLIF(wa_num(x->>'amount'),0),wa_num(x->>'qty')*wa_num(x->>'rate'))
+            WHEN wa_num(wh->>'finalPay')>0 THEN wa_num(wh->>'finalPay')
+            ELSE wa_num(CASE WHEN x->>'kind'='fill' THEN x->>'fillTotal' ELSE x->>'nett' END)*wa_num(x->>'rate') END;
+          entries := entries || jsonb_build_object('date',d,'label',COALESCE(x->>'label','Wheat')||' | Serial '||COALESCE(x->>'serial','-'),
+            'details','Receipt #'||COALESCE(wh->>'no',x->>'rst','-')||E'\nQty: '||COALESCE(CASE x->>'kind' WHEN 'simple' THEN x->>'qty' WHEN 'fill' THEN x->>'fillTotal' ELSE x->>'nett' END,'-')||
+              ' | Rate: '||wa_f(wa_num(x->>'rate')),
+            'amt',amount_,'kind','charge','cut',COALESCE((x->>'cut')::boolean,false) OR COALESCE((x->>'tvCut')::boolean,false));
+        END LOOP;
+      END IF;
+      FOR x IN SELECT value FROM jsonb_array_elements(COALESCE(s.v->(CASE WHEN credit THEN 'nagad' ELSE 'jama' END),'[]')) LOOP
+        IF NOT wa_party(x,cust) THEN CONTINUE; END IF;
+        entries := entries || jsonb_build_object('date',d,'label',CASE WHEN credit THEN 'Payment दिया' ELSE 'जमा / Payment मिला' END,
+          'details',COALESCE(x->>'mode',CASE WHEN wa_num(x->>'online')>0 THEN 'A/C' ELSE 'Cash' END),
+          'amt',wa_num(x->>'amount'),'kind','paid','cut',COALESCE((x->>'cut')::boolean,false));
+      END LOOP;
+    ELSIF s.key='sg_tv_manual' OR s.key LIKE 'sg_tvup_%' THEN
+      FOR x IN SELECT value FROM jsonb_array_elements(CASE WHEN s.key='sg_tv_manual' AND jsonb_typeof(s.v)='array' THEN s.v ELSE jsonb_build_array(s.v) END) LOOP
+        IF NOT wa_party(x,cust) OR (COALESCE(x->>'kind','cred')='deb')=credit THEN CONTINUE; END IF;
+        d := COALESCE(NULLIF(x->>'date',''),wa_ist_date());
+        label_ := COALESCE(NULLIF(x->>'note',''),CASE WHEN s.key='sg_tv_manual' THEN 'Opening / Manual' ELSE 'PDF balance' END);
+        IF wa_num(x->>'due')>0 THEN
+          entries := entries || jsonb_build_object('date',d,'label',label_,'details','',
+            'amt',wa_num(x->>'due'),'kind','charge','cut',COALESCE((x->>'tvCut')::boolean,false));
+        END IF;
+        IF wa_num(x->>'paid')>0 THEN
+          entries := entries || jsonb_build_object('date',d,'label','Payment | '||label_,'details',COALESCE(x->>'mode','Cash'),
+            'amt',wa_num(x->>'paid'),'kind','paid','cut',false);
+        END IF;
+      END LOOP;
+    END IF;
+  END LOOP;
+  SELECT COALESCE(sum(wa_num(e->>'amt')) FILTER(WHERE e->>'kind'='charge' AND NOT (e->>'cut')::boolean),0),
+    COALESCE(sum(wa_num(e->>'amt')) FILTER(WHERE e->>'kind'='paid' AND NOT (e->>'cut')::boolean),0),
+    COALESCE(jsonb_agg(e ORDER BY right(e->>'date',4)||substr(e->>'date',4,2)||left(e->>'date',2),n),'[]')
+    INTO charges,paid_,entries FROM jsonb_array_elements(entries) WITH ORDINALITY a(e,n);
+  RETURN jsonb_build_object('entries',entries,'charges',charges,'paid',paid_,'balance',charges-paid_);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.wa_balance(cust JSONB,ledger JSONB) RETURNS TEXT LANGUAGE sql AS $$
+ SELECT CASE WHEN wa_num(ledger->>'balance')<0 THEN 'Advance / अधिक जमा: '
+   WHEN wa_is_creditor(cust) THEN 'आपको देना बाकी: ' ELSE 'आपसे लेना बाकी: ' END || wa_f(abs(wa_num(ledger->>'balance'))) $$;
+
+-- Line-aware pages keep every receipt/item/payment within Meta's 1024-character body limit.
+CREATE OR REPLACE FUNCTION public.wa_statement(ph TEXT,cust JSONB,p_page INT DEFAULT 0) RETURNS JSONB
+LANGUAGE plpgsql AS $$
+DECLARE ledger JSONB := wa_ledger(cust); e JSONB; text_ TEXT; line_ TEXT; block_ TEXT := '';
+  pages TEXT[] := ARRAY[]::TEXT[]; page_ INT; buttons JSONB := '[]'; running NUMERIC := 0;
+BEGIN
+  text_ := E'*पूरा हिसाब — सभी तारीख़ें*\nकुल बिल: '||wa_f(wa_num(ledger->>'charges'))||
+    E'\nकुल Payment: '||wa_f(wa_num(ledger->>'paid'))||E'\n*'||wa_balance(cust,ledger)||E'*\n';
+  FOR e IN SELECT value FROM jsonb_array_elements(ledger->'entries') LOOP
+    IF NOT (e->>'cut')::boolean THEN running := running + wa_num(e->>'amt')*CASE WHEN e->>'kind'='paid' THEN -1 ELSE 1 END; END IF;
+    text_ := text_ || E'\n----------------\n'||COALESCE(e->>'date','')||' | '||COALESCE(e->>'label','')||
+      CASE WHEN (e->>'cut')::boolean THEN ' [रद्द — कुल में नहीं]' ELSE '' END||E'\n'||
+      CASE WHEN e->>'details'<>'' THEN (e->>'details')||E'\n' ELSE '' END||
+      CASE WHEN e->>'kind'='paid' THEN 'Payment: -' ELSE 'बिल: +' END||wa_f(wa_num(e->>'amt'))||E'\nचलता Balance: '||wa_f(running)||E'\n';
+  END LOOP;
+  text_ := text_ || E'\n================\n*'||wa_balance(cust,ledger)||E'*\nMinus balance = Advance.\nयह अभी तक synced खाते का विवरण है.';
+  FOREACH line_ IN ARRAY string_to_array(text_,E'\n') LOOP
+    WHILE length(line_)>700 LOOP
+      IF block_<>'' THEN pages:=array_append(pages,block_); block_:=''; END IF;
+      pages:=array_append(pages,left(line_,700)); line_:=substr(line_,701);
+    END LOOP;
+    IF length(block_)+length(line_)+1>700 THEN pages:=array_append(pages,block_); block_:=''; END IF;
+    block_:=block_||line_||E'\n';
+  END LOOP;
+  IF block_<>'' THEN pages:=array_append(pages,block_); END IF;
+  page_:=greatest(0,least(p_page,array_length(pages,1)-1));
+  IF page_>0 THEN buttons:=buttons||jsonb_build_object('id','m_stmt_'||(page_-1),'t','पिछला पेज'); END IF;
+  IF page_<array_length(pages,1)-1 THEN buttons:=buttons||jsonb_build_object('id','m_stmt_'||(page_+1),'t','अगला पेज'); END IF;
+  buttons:=buttons||jsonb_build_object('id','m_home','t','Main Menu');
+  RETURN wa_btn(ph,format(E'*SATYAM GOLD | खाता*\n%s\n%s\nपेज %s / %s\n\n%s',left(cust->>'name',80),left(COALESCE(cust->>'address',''),80),page_+1,array_length(pages,1),pages[page_+1]),buttons);
+END $$;
+
 CREATE OR REPLACE FUNCTION public.wa_handle(p_phone TEXT, p_msg TEXT) RETURNS TEXT
 LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
@@ -193,25 +315,33 @@ BEGIN
   END;
   st := COALESCE(st, '{}'::jsonb); R := COALESCE(R, '{}'::jsonb); cfg := COALESCE(cfg, '{}'::jsonb);
   owner := right(COALESCE(cfg->>'owner', '918252487551'), 10); shop := COALESCE(cfg->>'shop','SATYAM GOLD');
-  IF cust IS NOT NULL THEN nm := COALESCE(cust->>'name',''); area := COALESCE(cust->>'area','OTHER'); ckey := COALESCE(cust->>'key', upper(nm)); iscred := COALESCE((cust->>'type') = 'cred',false) OR COALESCE((cust->>'isCreditor')::boolean,false); END IF;
+  IF cust IS NOT NULL THEN nm := COALESCE(cust->>'name',''); area := COALESCE(cust->>'area','OTHER'); ckey := COALESCE(cust->>'key', upper(nm)); iscred := wa_is_creditor(cust); END IF;
   wheat := COALESCE(NULLIF(R->'master'->>'wheat','')::numeric,0);
   step := COALESCE(st->>'step','');
+  -- A service button always navigates, even while a quantity/rate is being entered.
+  IF m IN ('m_due','due','m_hisab','m_stmt','m_rate','m_owner','m_talk','m_obj','m_order') OR m ~ '^m_stmt_[0-9]{1,8}$' THEN
+    st := '{}'::jsonb; step := '';
+  END IF;
   BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'in', jsonb_build_object('text', p_msg, 'via', 'wa_handle'), p_msg); EXCEPTION WHEN OTHERS THEN NULL; END;
 
-  main_rows := '[{"id":"m_due","t":"💰 मेरा बाक़ी (Due)"},{"id":"m_order","t":"🛒 नया Order","d":"Atta · Sattu · Besan · Chokar"},{"id":"m_hisab","t":"📋 पूरा हिसाब"},{"id":"m_rate","t":"📈 आज का भाव"},{"id":"m_owner","t":"📞 मालिक से बात"},{"id":"m_obj","t":"⚠️ Rate Objection"}]'::jsonb;
+  main_rows := '[{"id":"m_due","t":"💰 मेरा बाक़ी (Due)"},{"id":"m_order","t":"🛒 नया Order","d":"Atta · Sattu · Besan · Chokar"},{"id":"m_hisab","t":"📋 पूरा हिसाब"},{"id":"m_rate","t":"📈 आज का भाव"},{"id":"m_owner","t":"📞 Owner से बात"},{"id":"m_obj","t":"⚠️ Rate Objection"}]'::jsonb;
 
   -- Global navigation takes priority over numeric input (2 means quantity, not menu).
   IF m ~ '^(hi+|hello|menu|start|namaste|नमस्ते|hy)$' OR m='m_home' THEN
     st := '{}'::jsonb;
-    out := wa_btn(ph, format(E'*%s*\nनमस्ते %s जी!\nWelcome to WhatsApp Services.%s\n\nनीचे touch करके service चुनें.',shop,COALESCE(NULLIF(nm,''),'Customer'),
+    out := wa_btn(ph, format(E'*%s*\nनमस्ते %s जी!\nआपका अपना सुरक्षित खाता और Order सेवा.%s\n\nनीचे touch करके service चुनें.',shop,COALESCE(NULLIF(nm,''),'Customer'),
       CASE WHEN iscred THEN E'\nWheat Master Rate: ' || CASE WHEN wheat>0 THEN wa_f(wheat)||' / Bag' ELSE 'अभी set नहीं है' END ELSE '' END),
       '[{"id":"m_due","t":"मेरा बाकी (Due)"},{"id":"m_order","t":"नया Order"},{"id":"m_more","t":"More Services"}]');
   ELSIF m='cancel' THEN
     st := '{}'::jsonb; out := wa_btn(ph,'Cancel कर दिया. कोई नया order/objection submit नहीं हुआ.','[{"id":"m_home","t":"Main Menu"}]');
   ELSIF m='m_more' THEN
-    st := '{}'::jsonb; out := wa_list(ph,'Service चुनें','Services','Services',main_rows);
+    st := '{}'::jsonb; out := wa_list(ph,'खाता, हिसाब, भाव या सहायता — नीचे चुनें.','Services','Services',main_rows);
+  ELSIF iscred AND (m IN ('m_order','2','ok_order','more_item','m_obj','6') OR m ~ '^(i_|s_|g_|p_)' OR step IN ('item','size','pack','qty','confirm')) THEN
+    st := '{}'::jsonb;
+    out := wa_btn(ph,'आपके Creditor खाते में केवल गेहूँ का भाव उपलब्ध है. अन्य खरीद या rate objection के लिए Owner से बात करें.',
+      '[{"id":"m_rate","t":"गेहूँ का भाव"},{"id":"m_owner","t":"Owner से बात"},{"id":"m_home","t":"Main Menu"}]');
   ELSIF cust IS NULL AND step<>'' THEN
-    st := '{}'::jsonb; out := wa_btn(ph,'आपका WhatsApp number अब खाते से link नहीं है. मालिक से mobile link करवाएँ.','[{"id":"m_owner","t":"मालिक से बात"},{"id":"m_home","t":"Menu"}]');
+    st := '{}'::jsonb; out := wa_btn(ph,'आपका WhatsApp number अब खाते से link नहीं है. Owner से mobile link करवाएँ.','[{"id":"m_owner","t":"Owner से बात"},{"id":"m_home","t":"Menu"}]');
   ELSIF step = 'qty' AND m ~ '^\d{1,4}$' THEN
     q := m::NUMERIC;
     IF q <= 0 OR q > 500 THEN out := wa_txt(ph, '❌ सही संख्या लिखें (1 – 500)'); 
@@ -237,7 +367,7 @@ BEGIN
       SELECT string_agg(format('%s | %s | Rate %s / unit | %s',l->>'name',l->>'pack',CASE WHEN (l->>'amt')::numeric>0 THEN wa_f((l->>'urate')::numeric) ELSE 'Pending' END,CASE WHEN (l->>'amt')::numeric>0 THEN wa_f((l->>'amt')::numeric) ELSE 'Rate pending' END), E'\n') INTO lines FROM jsonb_array_elements(COALESCE(st->'lines','[]'::jsonb)) l;
       out := wa_btn(ph, COALESCE(lines || E'\n\n','') || format(E'🧾 *Order Confirm करें*\n\n📦 %s\n🔢 %s %s%s\n%s\n👤 %s · %s',
               iname, q, unit, CASE WHEN pnote<>'' THEN ' (' || pnote || ')' ELSE '' END,
-              CASE WHEN urate > 0 THEN format(E'💵 Rate: %s / %s\n💰 कुल: *%s*', wa_f(urate), unit, wa_f(tot)) ELSE '💵 Rate: मालिक बताएँगे' END,
+              CASE WHEN urate > 0 THEN format(E'💵 Rate: %s / %s\n💰 कुल: *%s*', wa_f(urate), unit, wa_f(tot)) ELSE '💵 Rate: Owner बताएँगे' END,
               left(nm,80), left(COALESCE(cust->>'address',''),100)) || E'\n\nCart total (known rates): ' || wa_f(tot + COALESCE((SELECT sum((x->>'amt')::numeric) FROM jsonb_array_elements(COALESCE(st->'lines','[]')) x),0)),
              '[{"id":"ok_order","t":"✅ Confirm"},{"id":"more_item","t":"➕ और Item"},{"id":"cancel","t":"❌ Cancel"}]'::jsonb);
     END IF;
@@ -260,7 +390,7 @@ BEGIN
       SELECT COALESCE(value->'v','[]'::jsonb) INTO cur FROM sg_store s WHERE s.key = okey FOR UPDATE; cur := COALESCE(cur,'[]'::jsonb);
       SELECT COALESCE(max((o->>'no')::INT),0) INTO mx FROM sg_store s, jsonb_array_elements(COALESCE(s.value->'v','[]'::jsonb)) o WHERE s.key LIKE 'sg_ord_%' AND (o->>'no') ~ '^\d+$';
       ord := jsonb_build_object('id','w'||md5(ph||clock_timestamp()::TEXT), 'no', CASE WHEN mx+1<10 THEN '0'||(mx+1)::TEXT ELSE (mx+1)::TEXT END, 'ts', wa_ist_ts(),
-        'name', nm, 'address', COALESCE(cust->>'address',''), 'wa', true, 'phone', ph,
+        'name', nm, 'address', COALESCE(cust->>'address',''), 'wa', true, 'src', 'wa', 'phone', ph,
         'items', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC,'rate',CASE WHEN (l->>'rate')::NUMERIC>0 THEN l->>'rate' ELSE '' END,'note',(l->>'pack') || CASE WHEN COALESCE(l->>'note','')<>'' THEN ' · '||(l->>'note') ELSE '' END)) FROM jsonb_array_elements(ln) l),
         'ordered', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC)) FROM jsonb_array_elements(ln) l), 'deliv', '[]'::jsonb);
       INSERT INTO sg_store (key, value, updated_at) VALUES (okey, jsonb_build_object('v', cur || ord), (EXTRACT(EPOCH FROM now())*1000)::BIGINT)
@@ -269,7 +399,7 @@ BEGIN
       IF EXISTS(SELECT 1 FROM jsonb_array_elements(ln) l WHERE (l->>'urate')::NUMERIC<=0) THEN tot := NULL; END IF;
       st := '{}'::jsonb;
       out := wa_btn(ph, format(E'✅ *Order No %s book हो गया!*\n\n%s\n%s🕐 %s · %s\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।', ord->>'no', lines,
-               CASE WHEN tot > 0 THEN '💰 कुल: *' || wa_f(tot) || E'*\n' ELSE E'कुछ rate pending हैं; final total मालिक बताएँगे।\n' END, ord->>'ts', wa_ist_date()),
+               CASE WHEN tot > 0 THEN '💰 कुल: *' || wa_f(tot) || E'*\n' ELSE E'कुछ rate pending हैं; final total Owner बताएँगे।\n' END, ord->>'ts', wa_ist_date()),
              '[{"id":"m_order","t":"🛒 और Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
       BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('order', ord, 'name', nm), 'ORDER #' || (ord->>'no')); EXCEPTION WHEN OTHERS THEN NULL; END;
     END IF;
@@ -277,7 +407,7 @@ BEGIN
   -- ---------- order flow ----------
   ELSIF m = 'm_order' OR (step='' AND m='2') THEN
     IF cust IS NULL THEN
-      st := '{}'::jsonb; out := wa_btn(ph,'आपका WhatsApp number खाते से link नहीं है. मालिक से नाम, पता और mobile link करवाएँ.','[{"id":"m_owner","t":"मालिक से बात"},{"id":"m_home","t":"Menu"}]');
+      st := '{}'::jsonb; out := wa_btn(ph,'आपका WhatsApp number खाते से link नहीं है. Owner से नाम, पता और mobile link करवाएँ.','[{"id":"m_owner","t":"Owner से बात"},{"id":"m_home","t":"Menu"}]');
       INSERT INTO wa_sessions(phone,state) VALUES(ph,st) ON CONFLICT(phone) DO UPDATE SET state=excluded.state,updated_at=now();
       RETURN out::text;
     END IF;
@@ -314,26 +444,23 @@ BEGIN
 
   -- ---------- info ----------
   ELSIF (m IN ('m_due','due') OR (step='' AND m='1')) THEN
-    IF cust IS NULL THEN out := wa_btn(ph, E'ℹ️ आपका नंबर किसी खाते से जुड़ा नहीं है।\n📞 मालिक: +91 ' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
-    ELSE out := wa_btn(ph, format(E'💰 *%s* जी\n📍 %s\n\n🔴 कुल बाक़ी: *%s*', nm, COALESCE(cust->>'address',''), wa_f((COALESCE(cust->>'due','0'))::NUMERIC)),
+    IF cust IS NULL THEN out := wa_btn(ph, E'ℹ️ आपका नंबर किसी खाते से जुड़ा नहीं है।\n📞 Owner: +91 ' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+    ELSE out := wa_btn(ph, format(E'💰 *%s* जी\n📍 %s\n\n*%s*', nm, COALESCE(cust->>'address',''), wa_balance(cust,wa_ledger(cust))),
            '[{"id":"m_hisab","t":"📋 पूरा हिसाब"},{"id":"m_order","t":"🛒 नया Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb); END IF;
-  ELSIF (m IN ('m_hisab','m_stmt') OR (step='' AND m='3')) THEN
-    IF cust IS NULL THEN out := wa_txt(ph, 'ℹ️ आपका खाता नहीं मिला।');
-    ELSE
-      SELECT string_agg(format('🧾 %s · R.No %s = %s', r->>'rdate', r->>'rno', wa_f((r->>'total')::NUMERIC)), E'\n') INTO lines FROM jsonb_array_elements(COALESCE(cust->'receipts','[]'::jsonb)) r;
-      out := wa_btn(ph, format(E'📋 *%s* — हिसाब\n\n%s\n\n🔴 बाक़ी: *%s*', nm, COALESCE(lines,'—'), wa_f((COALESCE(cust->>'due','0'))::NUMERIC)), '[{"id":"m_obj","t":"⚠️ Objection"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
-    END IF;
+  ELSIF (m IN ('m_hisab','m_stmt') OR m ~ '^m_stmt_[0-9]{1,8}$' OR (step='' AND m='3')) THEN
+    st := '{}'::jsonb;
+    IF cust IS NULL THEN out := wa_txt(ph, 'आपका खाता नहीं मिला. Owner से number link करवाएँ.');
+    ELSE out := wa_statement(ph,cust,CASE WHEN m ~ '^m_stmt_[0-9]{1,8}$' THEN substring(m,8)::int ELSE 0 END); END IF;
   ELSIF (m='m_rate' OR (step='' AND m='4')) THEN
     IF iscred THEN
-      lines := CASE WHEN wheat > 0 THEN '🌾 गेहूँ (Wheat): *' || wa_f(wheat) || ' / Bag*' ELSE '🌾 गेहूँ का भाव अभी set नहीं — मालिक से बात करें' END;
+      lines := CASE WHEN wheat > 0 THEN '🌾 गेहूँ (Wheat): *' || wa_f(wheat) || ' / Bag*' ELSE '🌾 गेहूँ का भाव अभी set नहीं — Owner से बात करें' END;
     ELSE
       SELECT string_agg(format('• %s: %s', x.t, CASE WHEN wa_rate(R,area,ckey,x.k) > 0 THEN wa_f(wa_rate(R,area,ckey,x.k)) || x.u ELSE '—' END), E'\n') INTO lines
         FROM (VALUES ('gold','Atta Gold 23kg',' / बोरा'),('a18','Atta 18kg',' / थैला'),('a10','Atta 10kg',' / थैला'),('a5','Atta 5kg',' / थैला'),('sattu','Sattu',' / kg'),('besan','Besan',' / kg'),('chokar','Chokar',' / बोरा')) x(k,t,u);
-      IF wheat > 0 THEN lines := lines || E'\n• Wheat: ' || wa_f(wheat) || ' / Bag'; END IF;
     END IF;
     out := wa_btn(ph, E'📈 *आज का भाव*\n' || wa_ist_date() || E'\n\n' || COALESCE(lines,'—'), '[{"id":"m_order","t":"🛒 Order करें"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
   ELSIF (m IN ('m_owner','m_talk') OR (step='' AND m='5')) THEN
-    out := wa_btn(ph, E'📞 मालिक से बात करें:\n+91 ' || owner || E'\nwa.me/91' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+    out := wa_btn(ph, E'📞 Owner से बात करें:\n+91 ' || owner || E'\nwa.me/91' || owner, '[{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
   ELSIF m='m_obj' OR (step='' AND m='6') THEN
     st := jsonb_build_object('step','obj_receipt');
     out := wa_txt(ph,'Rate Objection: अपना Receipt No लिखें (जैसे 12). सिर्फ आपके खाते की receipt स्वीकार होगी. Hi = Menu');
@@ -352,7 +479,7 @@ BEGIN
   ELSIF step='obj_date' THEN
     SELECT COALESCE(jsonb_agg(x),'[]'::jsonb) INTO matches FROM jsonb_array_elements(wa_receipts(cust)) x
       WHERE x->>'rno'=st->>'rno' AND (x->>'sdate'=m OR x->>'rdate'=m);
-    IF jsonb_array_length(matches)<>1 THEN out := wa_txt(ph,'तारीख match नहीं हुई या receipt ambiguous है. DD-MM-YYYY दोबारा लिखें, या मालिक से बात करें.');
+    IF jsonb_array_length(matches)<>1 THEN out := wa_txt(ph,'तारीख match नहीं हुई या receipt ambiguous है. DD-MM-YYYY दोबारा लिखें, या Owner से बात करें.');
     ELSE st := jsonb_build_object('step','obj_items','rc',matches->0,'page',0); END IF;
   ELSIF step='obj_items' AND m='obj_next' THEN
     st := jsonb_set(st,'{page}',to_jsonb(COALESCE((st->>'page')::int,0)+1));
@@ -369,7 +496,7 @@ BEGIN
     ELSE
       rc := st->'rc'; ii := (st->>'ii')::int; li := rc->'items'->ii;
       st := st || jsonb_build_object('step','obj_confirm','newRate',m::numeric);
-      out := wa_btn(ph,format(E'*Objection Confirm करें*\nR.No %s | %s\nItem: %s | Qty: %s\nReceipt rate: %s\nआपका rate: %s\nSubmit के बाद मालिक review करेंगे.',rc->>'rno',rc->>'rdate',li->>'name',li->>'qty',wa_f((li->>'rate')::numeric),wa_f(m::numeric)),
+      out := wa_btn(ph,format(E'*Objection Confirm करें*\nR.No %s | %s\nItem: %s | Qty: %s\nReceipt rate: %s\nआपका rate: %s\nSubmit के बाद Owner review करेंगे.',rc->>'rno',rc->>'rdate',li->>'name',li->>'qty',wa_f((li->>'rate')::numeric),wa_f(m::numeric)),
         '[{"id":"obj_submit","t":"Confirm Submit"},{"id":"obj_edit","t":"Rate बदलें"},{"id":"cancel","t":"Cancel"}]');
     END IF;
   ELSIF step='obj_confirm' AND m='obj_edit' THEN
@@ -385,7 +512,7 @@ BEGIN
       PERFORM pg_advisory_xact_lock(hashtextextended('wa:objections',0));
       SELECT value->'v' INTO cur FROM sg_store WHERE key='sg_wa_obj' FOR UPDATE; cur := COALESCE(cur,'[]');
       IF EXISTS(SELECT 1 FROM jsonb_array_elements(cur) x WHERE x->>'status'='open' AND x->>'phone'=ph AND x->>'sdate'=rc->>'sdate' AND x->>'rcIdx'=rc->>'idx' AND x->>'itemIdx'=ii::text) THEN
-        out := wa_txt(ph,'इस item की objection पहले से pending है. मालिक के जवाब का इंतजार करें.');
+        out := wa_txt(ph,'इस item की objection पहले से pending है. Owner के जवाब का इंतजार करें.');
       ELSE
         li := rc->'items'->ii;
         obj := jsonb_build_object('id','ob_'||md5(ph||clock_timestamp()::text||random()::text),'phone',ph,'name',nm,'address',cust->>'address','custKey',ckey,
@@ -393,7 +520,7 @@ BEGIN
           'oldRate',(li->>'rate')::numeric,'newRate',(st->>'newRate')::numeric,'total',(rc->>'total')::numeric,'status','open','date',wa_ist_date(),'ts',wa_ist_ts());
         INSERT INTO sg_store(key,value,updated_at) VALUES('sg_wa_obj',jsonb_build_object('v',cur||obj),(extract(epoch from clock_timestamp())*1000)::bigint)
           ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,synced_at=now();
-        out := wa_btn(ph,format(E'Objection submitted.\nR.No %s | %s\n%s: %s -> आपका rate %s\nमालिक review करके WhatsApp पर जवाब देंगे.',obj->>'rno',obj->>'rdate',obj->>'item',wa_f((obj->>'oldRate')::numeric),wa_f((obj->>'newRate')::numeric)),'[{"id":"m_home","t":"Main Menu"}]');
+        out := wa_btn(ph,format(E'Objection submitted.\nR.No %s | %s\n%s: %s -> आपका rate %s\nOwner review करके WhatsApp पर जवाब देंगे.',obj->>'rno',obj->>'rdate',obj->>'item',wa_f((obj->>'oldRate')::numeric),wa_f((obj->>'newRate')::numeric)),'[{"id":"m_home","t":"Main Menu"}]');
       END IF;
       st := '{}'::jsonb;
     END IF;
@@ -414,8 +541,21 @@ BEGIN
     SELECT COALESCE(jsonb_agg(jsonb_build_object('id','oit_'||(n-1),'t',x->>'name','d','Qty '||(x->>'qty')||' | Rate '||wa_f((x->>'rate')::numeric))),'[]') INTO main_rows
       FROM jsonb_array_elements(rc->'items') WITH ORDINALITY a(x,n) WHERE n>page*9 AND n<=page*9+9;
     IF jsonb_array_length(rc->'items')>9 THEN main_rows:=main_rows||'[{"id":"obj_next","t":"Next items"}]'::jsonb; END IF;
-    IF jsonb_array_length(main_rows)=0 THEN st:='{}'; out:=wa_txt(ph,'Receipt में item नहीं मिला. मालिक से बात करें.');
+    IF jsonb_array_length(main_rows)=0 THEN st:='{}'; out:=wa_txt(ph,'Receipt में item नहीं मिला. Owner से बात करें.');
     ELSE out := wa_list(ph,'R.No '||(rc->>'rno')||' | '||(rc->>'rdate')||E'\nकिस item के rate में objection है?','Item चुनें','Receipt items',main_rows); END IF;
+  END IF;
+
+  IF iscred AND out->>'type'='interactive' THEN
+    IF out->'interactive'->>'type'='button' THEN
+      SELECT jsonb_agg(CASE WHEN b->'reply'->>'id'='m_order' THEN
+        jsonb_build_object('type','reply','reply',jsonb_build_object('id','m_rate','title','गेहूँ का भाव')) ELSE b END ORDER BY n)
+        INTO li FROM jsonb_array_elements(out->'interactive'->'action'->'buttons') WITH ORDINALITY a(b,n);
+      out := jsonb_set(out,'{interactive,action,buttons}',li);
+    ELSIF m='m_more' THEN
+      SELECT jsonb_agg(b ORDER BY n) INTO li FROM jsonb_array_elements(out->'interactive'->'action'->'sections'->0->'rows') WITH ORDINALITY a(b,n)
+        WHERE b->>'id' NOT IN ('m_order','m_obj');
+      out := jsonb_set(out,'{interactive,action,sections,0,rows}',li);
+    END IF;
   END IF;
 
   BEGIN
@@ -482,8 +622,10 @@ BEGIN
   ob := ob || jsonb_build_object('status',CASE WHEN p_action='deny' THEN 'deny' ELSE 'ok' END,'decision',p_action,
     'finalRate',rate_,'oldTotal',old_total,'newTotal',new_total,'rts',stamp||' | '||wa_ist_date(),'reply',p_action||': '||wa_f(rate_));
   msg_ := format(E'SATYAM GOLD\nनमस्ते %s जी!\nReceipt %s | %s\nItem: %s | Qty: %s\nआपका suggested rate: %s\nDecision: %s\nपुराना rate: %s | Final rate: %s\nReceipt total: %s -> %s\n%s\nHi लिखें: Menu',ob->>'name',ob->>'rno',ob->>'rdate',ob->>'item',ob->>'qty',wa_f((ob->>'newRate')::numeric),
-    CASE p_action WHEN 'deny' THEN 'Rejected / पुराना rate रहेगा' WHEN 'accept' THEN 'Accepted / आपका rate मंजूर' ELSE 'New rate / मालिक का नया rate' END,
+    CASE p_action WHEN 'deny' THEN 'Rejected / पुराना rate रहेगा' WHEN 'accept' THEN 'Accepted / आपका rate मंजूर' ELSE 'New rate / Owner का नया rate' END,
     wa_f((ob->>'oldRate')::numeric),wa_f(rate_),wa_f(old_total),wa_f(new_total),stamp);
+  ob := ob || jsonb_build_object('balance',wa_ledger(cust)->'balance');
+  msg_ := msg_ || E'\n\n*Updated खाता*\n' || wa_balance(cust,wa_ledger(cust)) || E'\nपूरा हिसाब देखने के लिए नीचे चुनें या Hi लिखें.';
   INSERT INTO wa_decisions(objection_id,phone,result,message) VALUES(p_id,ob->>'phone',ob,msg_);
   arr := jsonb_set(arr,ARRAY[oi::text],ob);
   UPDATE sg_store SET value=jsonb_build_object('v',arr),updated_at=(extract(epoch from clock_timestamp())*1000)::bigint,synced_at=now() WHERE key='sg_wa_obj';

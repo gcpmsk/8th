@@ -18,22 +18,22 @@ function waPublishCust(){
     const publish=(mob,record)=>{
       if(blocked.has(mob)) return;
       if(out[mob] && out[mob].key!==record.key){ delete out[mob]; blocked.add(mob); return; }
-      record.isCreditor=record.type==='cred'||!!out[mob]?.isCreditor;
+      record.isCreditor=record.type==='cred'; // Debtor wins when the same party is in both ledgers.
       out[mob]=record;
     };
     /* Creditor (गेहूँ देने वाले) भी — bot इन्हें Wheat का Master rate दिखाता है (type:'cred') */
     (D.cred||[]).forEach(d=>{
       const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
-      publish(mob,{name:d.name, address:d.address||'', key:d.key, type:'cred', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:0, receipts:[], paid:[], t:Date.now()});
+      publish(mob,{name:d.name, address:d.address||'', key:d.key, type:'cred', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:waN(d.bal), receipts:d.due||[], paid:d.paid||[], t:Date.now()});
     });
     (D.deb||[]).forEach(d=>{
       const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
-      const receipts=(d.due||[]).filter(x=>x.src==='arcpt').sort((a,b)=>String(b.sdate).split('-').reverse().join('').localeCompare(String(a.sdate).split('-').reverse().join(''))).slice(0,10).map(x=>{
+      const receipts=(d.due||[]).filter(x=>x.src==='arcpt').sort((a,b)=>String(b.sdate).split('-').reverse().join('').localeCompare(String(a.sdate).split('-').reverse().join(''))).map(x=>{
         let items=[]; try{ items=(JSON.parse(localStorage.getItem('sg_arcpt_'+x.sdate)||'[]')[x.sidx]||{}).items||[]; }catch(e){}
         return {rno:x.rno, rdate:x.rdate||x.date, sdate:x.sdate, idx:x.sidx, total:x.amt, cut:!!x.cut,
           items:items.map(i=>({name:i.name,qty:waN(i.qty),rate:waN(i.rate),amount:waN(i.amount)}))}; });
-      const paid=(d.paid||[]).filter(p=>!p.cut).slice(-5).reverse().map(p=>({date:p.date,amt:p.amt,mode:p.mode||'Cash'}));
-      publish(mob,{name:d.name, address:d.address||'', key:d.key, area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:Math.max(0,Math.round(d.bal||0)), receipts, paid, t:Date.now()});
+      const paid=(d.paid||[]).filter(p=>!p.cut).slice().reverse().map(p=>({date:p.date,amt:p.amt,mode:p.mode||'Cash'}));
+      publish(mob,{name:d.name, address:d.address||'', key:d.key, type:'deb', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:waN(d.bal), receipts, paid, t:Date.now()});
     });
     const old=localStorage.getItem(WA_CUST)||''; const nw=JSON.stringify(out);
     /* सिर्फ़ बदलने पर लिखो (t हटा कर compare) */

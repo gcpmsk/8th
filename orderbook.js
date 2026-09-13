@@ -269,14 +269,16 @@ function itemPillHTML(g,part){
 function nameBlockHTML(o){
   return `<span class="ob-nm2"><span class="en">${esc((o.name||'').toUpperCase())}${o.address?` <small>— ${esc((o.address||'').toUpperCase())}</small>`:''}</span>${(o.nameHi||o.addressHi)?`<span class="hi">${esc(o.nameHi||'')}${o.addressHi?` — ${esc(o.addressHi)}`:''}</span>`:''}</span>`;
 }
+function isWhatsAppOrder(o){ return !!o && (o.wa===true || o.src==='wa' || /\(WA\)/.test(o.tvEts||'')); }
+function waOrderBadge(o){ return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':''; }
 function orderCardHTML(o,isBack){
   const a=areaOf(o.address);
   const part=!!(o.deliv&&o.deliv.length);
   const gs=groupItems(o);
-  return `<div class="ob-o${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
+  return `<div class="ob-o${isWhatsAppOrder(o)?' wa-order':''}${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl">${esc(String(o.no))}</span>
-      ${nameBlockHTML(o)}
+      ${nameBlockHTML(o)}${waOrderBadge(o)}
       <span class="ob-tag ac">${esc(a.code)}</span>
       ${part?'<span class="ob-tag part">बचा हुआ</span>':''}
       <span class="ob-tag time">${isBack?`🕐 ${esc(o.ts||'')} · ${esc(o.date)}`:`🕐 ${esc(o.ts||'')}`}</span>
@@ -318,10 +320,10 @@ function compleatCardHTML(c){
   const a=areaOf(c.address||(o&&o.address));
   const left=o? ordRemain(o):[];
   const pseudo={name:c.name,nameHi:c.nameHi,address:c.address,addressHi:c.addressHi};
-  return `<div class="ob-o done${c.cancelled?' cut':''}"${o?` data-od="${esc(o.date)}" data-oi="${esc(o.id)}"`:''}>
+  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}${c.cancelled?' cut':''}"${o?` data-od="${esc(o.date)}" data-oi="${esc(o.id)}"`:''}>
     <div class="ob-o-h">
       <span class="ob-sl green">${esc(String(o?o.no:(c.rno||'—')))}</span>
-      ${nameBlockHTML(pseudo)}
+      ${nameBlockHTML(pseudo)}${waOrderBadge(o)}
       <span class="ob-tag ac">${esc(a.code)}</span>
       ${c.rno?`<span class="ob-tag rc">Receipt #${esc(String(c.rno))}</span>`:''}
       ${c.cancelled?`<span class="ob-tag part">❌ Cancel</span>`:''}
@@ -339,10 +341,10 @@ function compleatCardHTML(c){
 function delivCardHTML(dv){
   const o=dv.order, a=areaOf(o.address);
   const left=ordRemain(o);
-  return `<div class="ob-o done" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
+  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl green">${esc(String(o.no))}</span>
-      ${nameBlockHTML(o)}
+      ${nameBlockHTML(o)}${waOrderBadge(o)}
       <span class="ob-tag ac">${esc(a.code)}</span>
       ${dv.rno?`<span class="ob-tag rc">Receipt #${esc(String(dv.rno))}</span>`:''}
       <span class="ob-tag ok">✅ ${esc(dv.ts||'')}</span>
