@@ -580,6 +580,12 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .ob-add{margin:12px 13px 2px;border:2px dashed #cbd3e0;border-radius:12px;color:#8a94a6;text-align:center;
   font-size:13.5px;padding:11px;font-weight:800;cursor:pointer;transition:.2s;}
 .ob-add:hover{border-color:#f39c12;color:#e67e22;background:rgba(243,156,18,.07);}
+/* WhatsApp source remains green for old, partial and completed orders. */
+.ob-o.wa-order{background:linear-gradient(120deg,#e8fff1,#f5fff9);border-color:#9adbb5;border-left:5px solid #128c4a;box-shadow:0 4px 14px -10px #128c4a;}
+.ob-o.wa-order:hover{border-color:#128c4a;box-shadow:0 8px 20px -12px #128c4a;}
+.ob-o.wa-order .ob-sl,.ob-tag.wa-source{background:#128c4a;color:#fff;}
+.ob-o.wa-order .ob-nm2 .en,.ob-o.wa-order .ob-pill b{color:#11663c;}
+.ob-tag.wa-source{font-size:10px;letter-spacing:.2px;padding:3px 8px;}
 /* form */
 .ob-fhead{display:grid;grid-template-columns:1.7fr .8fr .9fr 34px;gap:5px;margin:12px 0 5px;font-size:10px;font-weight:800;color:#8a94a6;letter-spacing:.5px;text-transform:uppercase;}
 .ob-fr{display:grid;grid-template-columns:1.7fr .8fr .9fr 34px;gap:5px;margin-bottom:6px;}

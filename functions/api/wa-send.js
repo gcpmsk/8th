@@ -40,7 +40,10 @@ export async function onRequestPost({request,env}) {
     try {
       if(!env.WA_TOKEN||!env.WA_PHONE_ID) throw new Error('WA_TOKEN / WA_PHONE_ID missing; decision saved, retry after configuration');
       const recent=(await c.query("SELECT 1 FROM wa_inbox WHERE phone=$1 AND created_at>now()-interval '24 hours' LIMIT 1",[d.phone])).rows.length;
-      let payload={type:'text',text:{body:d.message}};
+      let payload=d.message.length<=1024 ? {type:'interactive',interactive:{type:'button',
+        body:{text:d.message},footer:{text:'SATYAM GOLD | Account Update'},
+        action:{buttons:[{type:'reply',reply:{id:'m_hisab',title:'पूरा हिसाब'}},
+          {type:'reply',reply:{id:'m_home',title:'Main Menu'}}]}}} : {type:'text',text:{body:d.message}};
       if(!recent) {
         if(!env.WA_OBJECTION_TEMPLATE) throw new Error('24-hour window closed: configure approved WA_OBJECTION_TEMPLATE, or ask customer to send Hi then Retry');
         const values=[result.name,result.rno,result.item,result.oldRate,result.finalRate,result.decision,result.newTotal];

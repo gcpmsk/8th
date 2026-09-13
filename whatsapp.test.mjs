@@ -236,9 +236,9 @@ await test('accept changes only selected duplicate-name line and decision retry 
 });
 await test('owner new rate and reject each notify; reject leaves receipt unchanged',async()=>{
   await fixture();let o=await object();let r=await admin({id:o.id,action:'set',rate:85.5});assert.equal(r.ok,true,r.error);
-  assert.match(sends.at(-1).text.body,/85.50/);assert.equal(Number((await value(receiptKey))[0].total),371);
+  assert.match(sends.at(-1).interactive.body.text,/85.50/);assert.equal(Number((await value(receiptKey))[0].total),371);
   await fixture();o=await object();const before=await value(receiptKey);r=await admin({id:o.id,action:'deny'});assert.equal(r.sent,true,r.error);
-  assert.deepEqual(await value(receiptKey),before);assert.match(sends.at(-1).text.body,/Rejected/);
+  assert.deepEqual(await value(receiptKey),before);assert.match(sends.at(-1).interactive.body.text,/Rejected/);
 });
 await test('owner API blocks unauthenticated and stale receipt decisions',async()=>{
   await fixture();const o=await object();assert.equal((await admin({id:o.id,action:'accept'},env,'bad')).status,401);
@@ -279,13 +279,23 @@ await test('quantity rejects fractions, suffix text, negatives, zero and huge nu
   for(const q of ['-1','0','2.5','5 bags','501','abc']){await send(q);assert.equal((await session()).step,'qty');}
   await send('2');assert.equal((await session()).step,'confirm');await send('cancel');
 });
-await test('master wheat displayed for creditors including dual debtor/creditor',async()=>{
-  await store('sg_rates',{master:{wheat:1500},areaAdj:{OTHER:{wheat:100}},cust:{[customer.key]:{wheat:50}}});
-  for(const roles of [{type:'cred'},{isCreditor:true}]){
+await test('wheat is visible only to creditors, never debtors or dual-role parties',async()=>{
+  await fixture();
+  await store('sg_rates',{master:{wheat:1500,gold:500},areaAdj:{OTHER:{wheat:100}},cust:{[customer.key]:{wheat:50}}});
+  for(const roles of [{type:'deb'},{isCreditor:true},{type:'cred'}]){
     await store('sg_wa_cust',{[phone.slice(-10)]:{...customer,...roles}});
-    await send('Hii');assert.match(sends.at(-1).interactive.body.text,/1,500.00/);
-    await send('m_rate');assert.match(sends.at(-1).interactive.body.text,/1,500.00/);assert.doesNotMatch(sends.at(-1).interactive.body.text,/Atta/);
+    await send('Hii');assert.doesNotMatch(sends.at(-1).interactive.body.text,/Wheat|1,500/);
+    await send('m_rate');assert.doesNotMatch(sends.at(-1).interactive.body.text,/Wheat|गेहूँ/);
+    assert.match(sends.at(-1).interactive.body.text,/Atta/);
   }
+  const supplier={name:'WHEAT SUPPLIER',address:'Village',key:'WHEAT SUPPLIER',type:'cred'};
+  await store('sg_wa_cust',{[phone.slice(-10)]:supplier});
+  await send('Hii');assert.match(sends.at(-1).interactive.body.text,/1,500.00/);
+  await send('m_rate');assert.match(sends.at(-1).interactive.body.text,/1,500.00/);
+  assert.doesNotMatch(sends.at(-1).interactive.body.text,/Atta|Sattu|Besan|Chokar/);
+  await send('m_more');assert.ok(sends.at(-1).interactive.action.sections[0].rows.every(x=>!['m_order','m_obj'].includes(x.id)));
+  await send('m_order');assert.match(sends.at(-1).interactive.body.text,/केवल गेहूँ/);
+  await send('i_atta');assert.doesNotMatch(sends.at(-1).interactive.body.text,/500.00/);
 });
 await test('unknown customer cannot create blank orders or use forged item IDs',async()=>{
   await store('sg_wa_cust',{});await send('Hi');await send('m_order');assert.deepEqual(await session(),{});
@@ -335,7 +345,7 @@ await test('order numbers do not truncate at 100 and missing rates remain pendin
   await fixture();await store('sg_ord_01-01-2026',[{no:'99',items:[]}]);
   await store('sg_rates',{master:{gold:100}});
   await send('m_order');await send('i_chokar');await send('2');
-  assert.match(sends.at(-1).interactive.body.text,/मालिक बताएँगे/);
+  assert.match(sends.at(-1).interactive.body.text,/Owner बताएँगे/);
   await send('ok_order');
   assert.match(sends.at(-1).interactive.body.text,/Order No 100/);
   assert.match(sends.at(-1).interactive.body.text,/rate pending/);
@@ -387,4 +397,85 @@ await test('documented packing SQL preserves other defaults on old databases',as
   assert.equal(result.pk.besan['500'].bora,20);
   await store('sg_wa_cfg',cfg);
 });
+
+await test('full statement covers every receipt and payment, manual/PDF balances and cancellation',async()=>{
+  await fixture();
+  await store(receiptKey,Array.from({length:15},(_,i)=>({name:customer.name,address:customer.address,no:String(100+i),total:'10',
+    items:[{name:'Item '+i,qty:2,rate:'5',amount:'10'}]})).concat({name:customer.name,address:customer.address,no:'CANCELLED',total:'900',cancelled:true,items:[]}));
+  const nbKey='sg_nb_02-09-2026',pdfKey='sg_tvup_test';
+  await store(nbKey,{jama:Array.from({length:8},()=>({name:customer.name,amount:'5'})).concat(
+    {name:'PRIVATE OTHER PARTY',amount:'9999'},{name:customer.name,address:'Different Address',amount:'9999'},
+    {name:customer.name,amount:'999',cut:true})});
+  await store('sg_tv_manual',[{name:customer.name,address:customer.address,kind:'deb',date:'31-08-2026',due:100,paid:20,note:'Opening'}]);
+  await store(pdfKey,{name:customer.name,address:customer.address,kind:'deb',date:'01-09-2026',due:50,paid:10,note:'PDF import'});
+  const ledger=(await db.query('SELECT wa_ledger($1::jsonb) AS l',[JSON.stringify(customer)])).rows[0].l;
+  assert.equal(ledger.charges,300);assert.equal(ledger.paid,70);assert.equal(ledger.balance,230);
+  assert.equal(ledger.entries[0].date,'31-08-2026');assert.equal(ledger.entries.length,29);
+  await send('m_order');await send('i_chokar'); // Statements must also work from an unfinished cart.
+  await send('m_hisab');
+  let all='',count=0,first=sends.at(-1).interactive.body.text;
+  while(true){
+    const reply=sends.at(-1).interactive;assert.ok(reply.body.text.length<=1024);
+    all+=reply.body.text+'\n';count++;assert.ok(count<50);
+    const next=reply.action.buttons.find(b=>b.reply.title==='अगला पेज');
+    if(!next)break;
+    await send(next.reply.id,'interactive');
+  }
+  assert.ok(count>2);assert.match(first,/कुल Payment: ₹70.00/);assert.match(all,/बाकी: ₹230.00/);
+  for(let i=100;i<115;i++)assert.ok(all.includes('Receipt #'+i));
+  assert.equal((all.match(/Payment: -₹5.00/g)||[]).length,8);
+  assert.match(all,/रद्द — कुल में नहीं/);assert.match(all,/PDF import/);assert.doesNotMatch(all,/PRIVATE OTHER PARTY/);
+  await send('m_stmt_99999999');assert.match(sends.at(-1).interactive.body.text,new RegExp('पेज '+count+' / '+count));
+  await db.query('DELETE FROM sg_store WHERE key=ANY($1::text[])',[[nbKey,pdfKey,'sg_tv_manual']]);
+});
+await test('creditor statement uses wheat final payment and includes payments, cuts and advances',async()=>{
+  const supplier={name:'WHEAT SUPPLIER',key:'WHEAT SUPPLIER',address:'Village',type:'cred'};
+  const nbKey='sg_nb_03-09-2026',whKey='sg_wrcpt_03-09-2026';
+  await store('sg_wa_cust',{[phone.slice(-10)]:supplier});
+  await store(nbKey,{maal:[{name:supplier.name,serial:1,nett:100,rate:2},{name:supplier.name,kind:'simple',amount:50},
+    {name:supplier.name,kind:'fill',fillTotal:10,rate:2,tvCut:true}],nagad:[{name:supplier.name,amount:70}]});
+  await store(whKey,[{serial:1,no:'W001',finalPay:185}]);
+  const ledger=(await db.query('SELECT wa_ledger($1::jsonb) AS l',[JSON.stringify(supplier)])).rows[0].l;
+  assert.equal(ledger.charges,235);assert.equal(ledger.paid,70);assert.equal(ledger.balance,165);
+  assert.ok(ledger.entries.some(x=>x.details.includes('W001')));
+  await send('m_due');assert.match(sends.at(-1).interactive.body.text,/आपको देना बाकी: ₹165.00/);
+  await store(nbKey,{nagad:[{name:supplier.name,amount:70}]});
+  await send('m_due');assert.match(sends.at(-1).interactive.body.text,/Advance.*₹70.00/);
+  await db.query('DELETE FROM sg_store WHERE key=ANY($1::text[])',[[nbKey,whKey]]);
+});
+await test('all objection decisions include live account balance and statement navigation',async()=>{
+  for(const [action,rate,balance] of [['accept',undefined,380],['set',85.5,371],['deny',undefined,400]]){
+    await fixture();const o=await object();const r=await admin({id:o.id,action,rate});
+    assert.equal(r.sent,true,r.error);assert.equal(r.result.balance,balance);
+    assert.match(sends.at(-1).interactive.body.text,new RegExp('बाकी: ₹'+balance+'.00'));
+    assert.ok(sends.at(-1).interactive.action.buttons.some(x=>x.reply.id==='m_hisab'));
+    await send('m_due');assert.match(sends.at(-1).interactive.body.text,new RegExp('₹'+balance+'.00'));
+    await send('m_hisab');assert.match(sends.at(-1).interactive.body.text,new RegExp('₹'+balance+'.00'));
+  }
+});
+await test('publisher retains full history and debtor precedence without rounding advances',async()=>{
+  const source=await readFile(new URL('./wa-admin.js',import.meta.url),'utf8');
+  const data=new Map();const due=Array.from({length:15},(_,i)=>({src:'arcpt',sdate:'01-09-2026',sidx:i,amt:10}));
+  const paid=Array.from({length:8},()=>({amt:5,date:'02-09-2026'}));
+  vm.runInNewContext(source.slice(0,source.indexOf('setTimeout(waPublishCust'))+'\nwaPublishCust();',{
+    localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},
+    tvBuild:()=>({cred:[{...customer,bal:100}],deb:[{...customer,bal:-1.25,due,paid}]}),tvMob:()=>phone,tvArea:()=> 'OTHER'
+  });
+  const c=JSON.parse(data.get('sg_wa_cust'))[phone.slice(-10)];
+  assert.equal(c.type,'deb');assert.equal(c.isCreditor,false);assert.equal(c.receipts.length,15);assert.equal(c.paid.length,8);assert.equal(c.due,-1.25);
+});
+await test('WhatsApp orders render green source cards while manual orders remain unchanged',async()=>{
+  const source=await readFile(new URL('./orderbook.js',import.meta.url),'utf8');
+  const start=source.indexOf('function isWhatsAppOrder');
+  const ctx=vm.createContext({areaOf:()=>({code:'TEST'}),groupItems:()=>[],nameBlockHTML:()=>'',esc:String,ordNeedRate:()=>false});
+  vm.runInContext(source.slice(start,source.indexOf('/* ===',start)),ctx);
+  for(const marker of [{wa:true},{src:'wa'},{tvEts:'1 PM (WA)'}]){
+    const card=ctx.orderCardHTML({id:'test',date:'01-09-2026',no:'1',...marker},true);
+    assert.match(card,/wa-order back/);assert.match(card,/wa-source.*WhatsApp/);
+  }
+  assert.doesNotMatch(ctx.orderCardHTML({id:'manual',date:'01-09-2026',no:'2'},false),/wa-order|wa-source/);
+  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');assert.match(html,/\.ob-o\.wa-order\{[^}]*#128c4a/);
+  await send('m_more');assert.ok(sends.at(-1).interactive.action.sections[0].rows.some(x=>x.title.includes('Owner से बात')));
+});
+
 await db.close();
