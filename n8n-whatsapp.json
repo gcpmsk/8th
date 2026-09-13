@@ -1,0 +1,120 @@
+{
+  "name": "SATYAM GOLD - Clickable WhatsApp Orders",
+  "active": false,
+  "nodes": [
+    {
+      "id": "sg-wa-trigger",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "notes": "Select your existing WhatsApp OAuth credential. Publish only after disabling the old workflow."
+    },
+    {
+      "id": "sg-wa-input",
+      "name": "Input निकालो",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Run Once for All Items. Keep IDs, not display titles, for button/list replies.\nconst result = [];\nfor (const item of $input.all()) {\n  const root = item.json;\n  const envelopes = Array.isArray(root) ? root : [root];\n  for (const envelope of envelopes) {\n    const values = envelope.entry\n      ? envelope.entry.flatMap(e => (e.changes || []).map(c => c.value))\n      : [envelope];\n    for (const value of values) {\n      for (const message of value?.messages || []) {\n        if (!['text', 'interactive', 'button'].includes(message.type)) continue;\n        const input = message.text?.body || message.interactive?.button_reply?.id\n          || message.interactive?.list_reply?.id || message.button?.payload\n          || message.button?.text || '';\n        if (!input) continue;\n        if (!/^91[0-9]{10}$/.test(String(message.from)) || !message.id) {\n          throw new Error('WhatsApp sender or message ID missing');\n        }\n        result.push({ json: { from: message.from, input, messageId: message.id } });\n      }\n    }\n  }\n}\nreturn result;"
+      }
+    },
+    {
+      "id": "sg-wa-db",
+      "name": "Bot का जवाब (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wa_receive($1::text, $2::text, $3::text) AS reply;",
+        "options": {
+          "queryReplacement": "={{ [$json.from, $json.input, $json.messageId] }}",
+          "queryBatching": "independently"
+        }
+      },
+      "notes": "Select the same PostgreSQL database as Adminer and the app. Run whatsapp-schema.sql first."
+    },
+    {
+      "id": "sg-wa-send",
+      "name": "WhatsApp JSON भेजो",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.reply) }}",
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Replace PHONE_NUMBER_ID, not the mobile number. Header Auth credential: Name Authorization, Value Bearer YOUR_META_TOKEN. Never put the token in code."
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Input निकालो",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input निकालो": {
+      "main": [
+        [
+          {
+            "node": "Bot का जवाब (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot का जवाब (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp JSON भेजो",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
