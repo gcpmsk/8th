@@ -485,135 +485,245 @@ SELECT count(*) FROM sg_store;
 
 ---
 
-## 📱 WhatsApp Bot (SBI जैसा — touch वाला)
+## WhatsApp clickable bot — पूरा setup (September 2026)
 
-Files: `functions/api/wa.js` (webhook), `functions/api/wa-send.js` (app → customer message), `wa-admin.js` (app side), `whatsapp-schema.sql`
+**पुराने WhatsApp setup की जगह यही instructions follow करें.** Bot का एक ही Postgres logic है; n8n और `/api/wa` दोनों उसी को चलाते हैं. केवल text वाला WhatsApp Send node interactive menu नहीं बनाएगा.
 
-### Setup
-1. **Postgres** — Adminer → SQL command में `whatsapp-schema.sql` का पूरा text paste → Execute
-   **पुरानी tables/data delete नहीं करें।** नया SQL non-destructive migration है; `mobile` और `direction` missing columns जोड़ता है। Existing orders, rates, sessions और settings रहते हैं। पूरा SQL दोबारा भी चला सकते हैं; पहले database backup रखना अच्छा है।
-2. **Cloudflare Pages → Settings → Variables**: `DATABASE_URL`, `WA_TOKEN`, `WA_PHONE_ID`, `WA_VERIFY_TOKEN`
-3. **Meta → WhatsApp → Configuration** → Callback URL `https://<domain>/api/wa`, Verify token = `WA_VERIFY_TOKEN`, subscribe `messages`
-4. App में Debtor का mobile (Tally → 📱) भरा हो — उसी number से customer पहचाना जाता है (`sg_wa_cust` app हर 30 sec लिखता है)
-
-### Customer flow (कुछ type नहीं — सिर्फ़ qty / rate की संख्या)
-```
-Hi / Hii → [मेरा बाक़ी (Due)] [नया Order करें] [More Services]
-More Services → हिसाब / आज का भाव / Rate Objection / बात करें / Main Menu
-🛒 नया Order → Atta Gold / Atta 18kg / Atta 10kg / Atta 5kg / Sattu / Besan  (हर item के साथ rate)
-   Sattu / Besan → 200g / 500g
-   → [👜 थैला (या 📦 Packet)] [🧺 बोरा]  (दोनों का rate, 1 बोरा = कितना)
-   → सिर्फ़ संख्या (qty) → Confirm → Order Book (sg_ord_<date>) में सीधे आ जाता है, मालिक को WhatsApp भी
-⚠️ Rate Objection → अपनी receipt चुनें → item चुनें → सही rate (संख्या) → मालिक को WhatsApp + App में
-```
-
-### App side — Home → WhatsApp → Objection
-- हर objection: receipt · item · qty × पुराना rate → customer का rate (box में)
-- **✓ Customer का rate रखें** / **✏️ मेरा rate लगाएँ** (box में नया rate भर कर) / **✖ Deny**
-- Rate बदला → receipt में item rate + total update, Debtor due में पुराना amount **कट** कर नया amount, `✏️ time (WA)` stamp
-- जवाब customer को WhatsApp पर अपने आप चला जाता है (`/api/wa-send`)
-
-## WhatsApp reply नहीं आ रहा — पूरा setup
-
-## 🔘 SBI-जैसा Button/List bot — n8n + Postgres (सबसे आसान, code deploy नहीं चाहिए)
-
-`whatsapp-schema.sql` का `wa_handle(phone, msg)` अब **पूरा WhatsApp JSON** (list / buttons / text) लौटाता है। n8n में सिर्फ़ 4 node:
-
-**Step A — Adminer → SQL command** में पूरा [whatsapp-schema.sql](./whatsapp-schema.sql) paste → Execute (पुराना editor text हटाएँ; DB की tables/data नहीं हटाना, दोबारा चलाना safe है)।
-⚠️ n8n credential का **Database नाम वही** हो जिसमें Adminer में SQL चलाया (n8n → Credentials → Postgres account → Database)। नहीं तो `relation "wa_log" does not exist` आता है।
-
-**Step B — n8n "सिर्फ़ Text Message?" (IF node)** को हटाएँ या condition ऐसी करें कि text **और** interactive दोनों पास हों। सबसे आसान: IF node हटा कर Trigger → Code node।
-
-**Step C — नया Code node "Input निकालो"** (Trigger के बाद, Postgres से पहले) — JavaScript में paste:
-```js
-const msg = $json.messages?.[0] || {};
-let input = msg.text?.body || '';
-if (msg.type === 'interactive') {
-  input = msg.interactive?.button_reply?.id || msg.interactive?.list_reply?.id || '';
-}
-return [{ json: { from: msg.from, input } }];
-```
-
-**Step D — "Bot का जवाब (Postgres)" node** — Operation: Execute Query
-```sql
-SELECT wa_handle($1, $2) AS reply;
-```
-Query Parameters: `{{ $json.from }},{{ $json.input }}`
-
-**Step E — "WhatsApp पर भेजो" को HTTP Request node से बदलें** (WhatsApp node interactive body नहीं भेज पाता):
-- Method: `POST`
-- URL: `https://graph.facebook.com/v20.0/<PHONE_NUMBER_ID>/messages` (Meta का phone-number ID, mobile नहीं)
-- Authentication: Header Auth → `Authorization: Bearer <WA_TOKEN>` (या Predefined: WhatsApp credential)
-- Send Body: ON → Body Content Type: **JSON** → Specify Body: **Using JSON** → JSON:
-```
-{{ $json.reply }}
-```
-(reply पहले से पूरा JSON है — `messaging_product`, `to`, `type`, `interactive` सब उसमें है।)
-
-Flow: `WhatsApp Trigger → Code (Input निकालो) → Postgres (wa_handle) → HTTP Request (graph.facebook.com)`
-
-### Customer को क्या दिखेगा
-- **Hi** → List menu: 💰 मेरा बाक़ी · 🛒 नया Order · 📋 पूरा हिसाब · 📈 आज का भाव · 📞 मालिक · ⚠️ Objection
-- **🛒 नया Order** → List: 🌾 Atta · 🥣 Sattu · 🟡 Besan · 🐄 Chokar
-  - **Atta** → List: Gold 23kg / 18kg / 10kg / 5kg (rate साथ में) → "कितने **बोरा**?" → सिर्फ़ संख्या लिखें
-  - **Sattu / Besan** → Button: 200g / 500g → Button: 👜 थैला / 🧺 बोरा → "कितने?" → संख्या
-  - **Chokar** → "कितने बोरा?" → संख्या
-  - हर बार **Confirm screen** — item, qty, `Rate ₹/बोरा`, `कुल ₹` (Set Rate में rate हो तो; नहीं तो "मालिक बताएँगे") → ✅ Confirm / ➕ और Item / ❌ Cancel
-  - Confirm → **Order Book** (`sg_ord_<date>`) में सीधे save + Order No + rate वाला summary
-- **Creditor** (गेहूँ देने वाले; app में मोबाइल लगा हो): Hi पर ही *आज गेहूँ का भाव ₹…/Bag* (Set Rate → Master → Wheat) और 📈 भाव में सिर्फ़ Wheat
-- Rate = Set Rate का Master → Area ± adj → Customer special (app वाला ही logic)
-- थैला/बोरा में कितने packet: `sg_wa_cfg.pk` (default: 200g → बोरा 50 / थैला 10; 500g → बोरा 20 / थैला 4) — Adminer में `UPDATE sg_store SET value = jsonb_set(value, '{v,pk,sattu,200,thaila}', '12') WHERE key='sg_wa_cfg';` जैसा बदलें
-
-पुराना text-only तरीक़ा (1-6 नंबर लिखना) भी काम करता है। नीचे वाला `/api/wa` (Cloudflare) path वैकल्पिक है।
-
-### 1. नया code deploy + SQL migration
-- GitHub PR merge करके Cloudflare Pages का production deployment पूरा होने दें। केवल branch push करना production deployment की पुष्टि नहीं है।
-- **[whatsapp-schema.sql](./whatsapp-schema.sql)** खोलें → पूरा text copy → Adminer/Postgres **SQL command** में paste → Execute। SQL editor में पुराना text हटाकर नया text रखें; **database की tables/data नहीं हटाएँ**। पुराना `wa_handle()` function पड़ा रह सकता है; उसे call नहीं करना है।
-- यह SQL n8n के `Bot का जवाब (Postgres)` node में paste नहीं करना है। Migration सिर्फ़ database setup के लिए एक बार चलाएँ।
-- उसी database का `DATABASE_URL` app के deployed environment में रखें जिसमें `sg_store` है। n8n के credentials अपने-आप Cloudflare तक नहीं जाते। `localhost` वाला n8n URL Cloudflare से नहीं चलेगा; reachable PostgreSQL host चाहिए।
-- Cloudflare Pages production Variables/Secrets: `DATABASE_URL`, `WA_TOKEN`, `WA_PHONE_ID`, `WA_VERIFY_TOKEN`। Secrets बदलने के बाद redeploy करें। `WA_PHONE_ID` **Meta phone-number ID** है, mobile number नहीं। `WA_TOKEN` valid Meta access token हो। Token GitHub या chat में paste नहीं करें।
-
-### 2. आपके मौजूदा n8n में यही रखें
+### क्या मिलेगा
 
 ```text
-WhatsApp Trigger ──→ HTTP Request
+Hi / Hii → [मेरा बाकी (Due)] [नया Order] [More Services]
+More Services → हिसाब / आज का भाव / Rate Objection / मालिक से बात
+
+नया Order → Atta / Sattu / Besan / Chokar
+Atta → Gold 23KG / 18KG / 10KG / 5KG → कितने बोरा? (सिर्फ संख्या)
+Sattu / Besan → 200g / 500g → थैला / बोरा → कितने? (सिर्फ संख्या)
+Chokar → कितने बोरा? (सिर्फ संख्या)
+→ पूरे cart के items, quantity, rate, known total → Confirm / और Item / Cancel
+→ Confirm करने पर Order Book में save + Order No
+
+Rate Objection → Receipt No लिखें → सिर्फ अपने खाते की receipt match
+→ उसी receipt का item चुनें → अपना rate लिखें
+→ Confirm Submit / Rate बदलें / Cancel
+→ App: Home या Order Book → WhatsApp → Objection
+→ Customer rate Accept / मेरा New Rate / Deny
+→ Customer को WhatsApp response; failure होने पर Retry WhatsApp
 ```
 
-पहले workflow export/backup लें। पुराने **सिर्फ़ Text Message?**, **Bot का जवाब (Postgres)** और **WhatsApp पर भेजो** nodes disconnect/disable करें। Text-only filter हटाना ज़रूरी है: button tap का type `interactive` होता है, `text` नहीं।
+- WhatsApp की सीमा: एक reply में अधिकतम **3 buttons**; लंबी choices clickable list में हैं, SBI जैसा interaction. SBI का logo/verified badge नहीं लगाया गया है.
+- Quantity **1–500 पूरे बोरा/थैला**; rate अधिकतम 2 decimal. एक order में अधिकतम 4 item lines ताकि पूरा confirmation WhatsApp में पढ़ सकें. Hi/Cancel से draft हटता है; 30 मिनट inactivity पर draft expire होता है.
+- Rate नहीं set है तो **Rate pending / मालिक बताएँगे**, zero/free माल का दावा नहीं. Partial known total को final bill न मानें.
+- Creditor के Hi और आज का भाव में **Set Rate → Master → Wheat (₹/Bag)** दिखेगा; debtor+creditor दोनों होने पर भी Wheat रहेगा. Master Save के बाद sync होने दें. यह customer के Hi/भाव request पर दिखता है, हर rate change पर bulk broadcast नहीं होता.
+- Product rate: Master → Area adjustment → Customer discount. Sattu/Besan master **₹/kg**, receipt में packet quantity/rate बनता है.
+- Receipt matching original `sg_arcpt_*` records के **नाम + पता** से है, केवल receipt number से नहीं. Cut/cancelled receipts स्वीकार नहीं. एक ही receipt number अलग तारीख पर हो तो date भी पूछेगा. नाम/पता mismatch हो तो पहले app में सही करें; किसी और की receipt allow न करें.
+- पुराने सिर्फ text वाले objections जिनमें item index नहीं है, उन्हें customer से नए flow में फिर submit करवाएँ.
 
-**HTTP Request की पूरी setting:**
+### 1. GitHub code और app deployment
 
-| Field | Value |
+1. इस PR को review करके `main` में merge करें; फिर आपकी existing **Cloudflare Pages** production deployment सफल होने दें. GitHub push अपने-आप live deployment का प्रमाण नहीं है.
+2. App backend के लिए Pages Functions चलने चाहिए: `/api/sync`, `/api/wa-send`, वैकल्पिक `/api/wa`. केवल GitHub Pages/static HTML hosting पर approvals नहीं चलेंगे.
+3. n8n सिर्फ customer conversation चलाता है; **app से accept/reject notification के लिए updated app/backend deploy करना जरूरी है**, चाहे नीचे SQL-only n8n route चुनें.
+
+### 2. Adminer में क्या paste करना है
+
+1. Adminer खोलें → वही Database जिसमें `sg_store` है → Schema `public` → **SQL command**.
+2. [whatsapp-schema.sql](./whatsapp-schema.sql) GitHub में खोलें → **Raw** → पूरा text copy.
+3. SQL editor का पुराना text हटाएँ, नया पूरा SQL paste → **Execute**. Tables/पुराना data DELETE नहीं करना. पहले backup रखना बेहतर है. Migration दोबारा चल सकती है.
+4. यह पूरा migration n8n Postgres node में **नहीं** paste करना; उस node की छोटी query नीचे है.
+
+जरूरी: केवल `wa_log`/`wa_sessions` मौजूद होने से ग्राहक data link नहीं हो जाता. App, Adminer और n8n **एक ही database** उपयोग करें. App में Tally → Debtors/Creditors → Mobile भरें. App खोलें, cloud sync green होने दें और लगभग 30 seconds रुकें. `sg_wa_cust`, `sg_rates`, `sg_arcpt_*` उसी `sg_store` में पहुँचने चाहिए. एक number अलग-अलग accounts पर होने पर bot उसे block करता है; unique mobile link ठीक करें. Unknown number order नहीं बना सकता; मालिक पहले register करे.
+
+जाँच के लिए Adminer में अलग से चलाएँ (customer data print नहीं करता):
+
+```sql
+SELECT key, updated_at FROM public.sg_store
+WHERE key IN ('sg_wa_cust','sg_rates','sg_wa_cfg');
+SELECT count(*) AS receipt_days FROM public.sg_store WHERE key LIKE 'sg_arcpt_%';
+```
+
+### 3. आपके screenshot वाले n8n के लिए recommended तरीका
+
+**Import file:** [n8n-whatsapp.json](./n8n-whatsapp.json) download करें → n8n → नया workflow → menu → **Import from File**. Import inactive रहता है. Credentials जानबूझकर file में नहीं हैं.
+
+```text
+WhatsApp Trigger → Input निकालो (Code) → Bot का जवाब (Postgres) → WhatsApp JSON भेजो (HTTP Request)
+```
+
+- Trigger में अपना existing WhatsApp credential चुनें.
+- Postgres में वही credential/database चुनें जिसमें ऊपर SQL execute किया.
+- HTTP node URL में `REPLACE_PHONE_NUMBER_ID` की जगह Meta का **Phone Number ID** भरें (mobile number नहीं).
+- HTTP node → Generic Credential Type → **Header Auth** → नया credential:
+  - Name: `Authorization`
+  - Value: `Bearer YOUR_META_ACCESS_TOKEN` (Bearer के बाद एक space, फिर अपना token)
+- पुराने workflow को पहले export/backup करें, फिर inactive करें. नया workflow **Save + Publish/Activate** करें. एक ही WhatsApp app के दो active responders नहीं रखें.
+- Screenshot का **सिर्फ Text Message?** IF node हटाएँ/disconnect करें; button tap `interactive` होता है. पुराने **WhatsApp पर भेजो** text node को HTTP Request से बदलना अनिवार्य है.
+
+**Import न करें तो manual copy/paste:**
+
+Code node → Mode **Run Once for All Items** → JavaScript:
+
+```js
+// Run Once for All Items. Keep IDs, not display titles, for button/list replies.
+const result = [];
+for (const item of $input.all()) {
+  const root = item.json;
+  const envelopes = Array.isArray(root) ? root : [root];
+  for (const envelope of envelopes) {
+    const values = envelope.entry
+      ? envelope.entry.flatMap(e => (e.changes || []).map(c => c.value))
+      : [envelope];
+    for (const value of values) {
+      for (const message of value?.messages || []) {
+        if (!['text', 'interactive', 'button'].includes(message.type)) continue;
+        const input = message.text?.body || message.interactive?.button_reply?.id
+          || message.interactive?.list_reply?.id || message.button?.payload
+          || message.button?.text || '';
+        if (!input) continue;
+        if (!/^91[0-9]{10}$/.test(String(message.from)) || !message.id) {
+          throw new Error('WhatsApp sender or message ID missing');
+        }
+        result.push({ json: { from: message.from, input, messageId: message.id } });
+      }
+    }
+  }
+}
+return result;
+```
+
+Postgres node → Operation **Execute Query** → Query:
+
+```sql
+SELECT public.wa_receive($1::text, $2::text, $3::text) AS reply;
+```
+
+Options → **Query Parameters** (Expression):
+
+```js
+{{ [$json.from, $json.input, $json.messageId] }}
+```
+
+Options → Query Batching: **Independently**. Customer text को SQL के अंदर जोड़कर query न बनाएँ; ऊपर के `$1/$2/$3` safe parameters हैं.
+
+HTTP Request node:
+
+| Setting | Value |
 |---|---|
-| Method | `POST` |
-| URL | `https://<आपकी-app-domain>/api/wa` — website का domain, n8n editor का नहीं |
+| Method | POST |
+| URL | `https://graph.facebook.com/v23.0/YOUR_PHONE_NUMBER_ID/messages` |
+| Authentication | Generic Credential Type → Header Auth (ऊपर वाला credential) |
 | Send Body | ON |
 | Body Content Type | JSON |
 | Specify Body | Using JSON |
-| JSON (Expression mode) | `{{ $json }}` |
-| Response Format | JSON |
-| Never Error / Continue On Fail | OFF — error दिखना चाहिए |
+| JSON, Expression mode | `{{ JSON.stringify($json.reply) }}` |
+| Settings → Retry On Fail | ON, 3 tries, 2000ms |
+| Continue On Fail / Never Error | OFF |
 
-पूरा `$json` भेजें, सिर्फ़ `messages[0].text.body` नहीं। अलग WhatsApp Send node नहीं लगाना: `/api/wa` खुद reply भेजता है। Workflow Save + Publish/Activate करें। Test-listening mode और production workflow साथ न चलाएँ।
+`reply` **पूरा WhatsApp JSON body** है. इसे `text.body` के अंदर न रखें. Meta message ID से DB processing deduplicate होती है: retry में order/objection दोबारा save नहीं होता. SQL-only route में retry पर वही reply फिर दिख सकता है; यह handset delivery की exactly-once guarantee नहीं है.
 
-### 3. n8n नहीं रखना हो — दूसरा विकल्प
-- Meta → WhatsApp → Configuration: Callback URL `https://<आपकी-app-domain>/api/wa`; Verify token = production `WA_VERIFY_TOKEN`; `messages` subscribe करें।
-- इस विकल्प में n8n वाला पुराना workflow inactive रखें। **दोनों reply paths साथ नहीं चलाने हैं**।
+### 4. App से Accept / New Rate / Reject और WhatsApp जवाब
 
-### 4. Test करें
-1. दूसरे WhatsApp number से business number पर `Hi` या `Hii` भेजें।
-2. तीन वास्तविक reply buttons आएँगे: **मेरा बाक़ी (Due)**, **नया Order करें**, **More Services**। Meta reply-message में अधिकतम तीन buttons देता है; बाकी options More Services की clickable list में हैं।
-3. More Services → Rate Objection; नए Order में item → packing → quantity → Confirm करें। Unknown customer को पहले नाम/पता लिखना होगा।
-4. Website **Home → WhatsApp → Objection** खोलें। WhatsApp tile Notebook/Order Book के साथ बाहर है, Order Book header में नहीं।
-5. Customer पहचान के लिए Tally में mobile save हो, app खुला हो और cloud sync सफल हो; `sg_wa_cust` उसी database में पहुँचना चाहिए।
+Cloudflare Pages → आपके project → Settings → Variables and Secrets → **Production**:
 
-**Error अब छिपेगा नहीं:** HTTP node में `{ok:false,error:...}` और non-2xx status मिलेगा। `190` आमतौर पर expired/invalid token, missing `WA_TOKEN/WA_PHONE_ID` deployed configuration, `relation/column does not exist` गलत database या migration, और `404` गलत domain/undeployed endpoint दर्शाता है।
+| Name | क्या भरें |
+|---|---|
+| `DATABASE_URL` | उसी Postgres का connection URL; `postgresql://USER:PASSWORD@HOST:PORT/DATABASE` |
+| `WA_TOKEN` | Valid Meta access token with WhatsApp sending permission |
+| `WA_PHONE_ID` | Meta Phone Number ID (mobile number नहीं) |
+| `WA_ADMIN_TOKEN` | अपना अलग लंबा random owner secret; उदाहरण बनाने के लिए अपने terminal पर `openssl rand -hex 32` |
+| `WA_GRAPH_VERSION` | Optional, default `v23.0`; Meta-supported version रखें |
+| `WA_OBJECTION_TEMPLATE` | Optional approved utility template name; 24h के बाहर चाहिए |
+| `WA_TEMPLATE_LANG` | उसी template का language code, default `hi` |
 
-```sql
-SELECT phone, dir, body, created_at FROM wa_log ORDER BY id DESC LIMIT 30;
+Secrets change के बाद **redeploy** करें. Password/token GitHub, workflow JSON या chat में न डालें. अगर Postgres password में `@`, `#`, `/` जैसे characters हैं तो URL-encode करें. Cloudflare के लिए reachable DB host चाहिए; n8n का `localhost` Cloudflare से नहीं पहुँचेगा.
+
+App में Home/Order Book → **WhatsApp → Objection** खोलें. पहली बार **Owner access key** पूछेगा: ऊपर set किया हुआ **WA_ADMIN_TOKEN** भरें (Meta token नहीं). Key सिर्फ current tab की memory में रहती है; reload के बाद फिर पूछेगा.
+
+Customer rate रखें / मेरा rate / Deny → confirmation → server receipt owner और selected item दोबारा verify करेगा. Accept/New Rate में केवल चुनी हुई item line, receipt total और `tvAmt` बदलते हैं; Debtor view sync के बाद update होता है. Deny में receipt unchanged. DB में decision save होने के बाद ही WhatsApp send होता है. Double tap या retry से rate दोबारा apply नहीं होता.
+
+WhatsApp fail हो तो decision खोता नहीं है: पुराने objections में **Retry WhatsApp** दिखेगा और कारण दिखेगा. Token/setting ठीक करें फिर retry. `Meta accepted` API acceptance है, customer ने पढ़ लिया/handset delivery की guarantee नहीं.
+
+**24-hour rule:** पिछले customer message के 24h के अंदर normal text भेज सकते हैं. बाहर approved template चाहिए; बिना template customer से **Hi** भेजवाकर **Retry WhatsApp** करें.
+
+Meta WhatsApp Manager → Message templates → Utility → language **Hindi**, नाम जैसे `satyam_rate_decision`. Body (यही 7 parameters, इसी क्रम में):
+
+```text
+SATYAM GOLD
+नमस्ते {{1}} जी, आपकी receipt {{2}} के item {{3}} की rate objection का निर्णय:
+पुराना rate: INR {{4}}
+Final rate: INR {{5}}
+Decision: {{6}}
+Receipt total: INR {{7}}
+जानकारी के लिए Hi लिखें.
 ```
 
-Successful reply के बाद `processed` log बनता है; repeated successful message ID दोबारा नहीं भेजा जाता। Failed `Hi` delivery retry हो सकती है। यह पूरी order/payment system के लिए exactly-once delivery guarantee नहीं है। Meta free-form reply सामान्यतः customer के पिछले message की 24-hour window में जाता है; बाहर approved template चाहिए। API acceptance handset delivery की guarantee नहीं है। Owner notification fail हो तो customer के saved order को failed नहीं बताया जाता।
+Meta की approval आवश्यक है; template creation/approval code से अपने-आप नहीं होती. Approved नाम `WA_OBJECTION_TEMPLATE` में रखें. Language बदलें तो `WA_TEMPLATE_LANG` बिल्कुल वही रखें. Parameter samples: Customer, 12, Atta Gold, 500, 480, accept, 960.
 
-### Automated tests
-`npm ci && npm test` — in-memory PostgreSQL (PGlite) पर migration/data preservation और bot flows; Meta sends mocked हैं, live customer को message नहीं भेजते। Live database migration, n8n activation और actual WhatsApp delivery अलग से verify करें।
+### 5. वैकल्पिक route — n8n में Postgres न रखना हो
+
+**यह ऊपर वाले 4-node route का विकल्प है, साथ नहीं चलाना.**
+
+```text
+WhatsApp Trigger → HTTP Request → आपकी app का /api/wa
+```
+
+Cloudflare secret `WA_RELAY_SECRET` में अलग random secret set करें और redeploy.
+HTTP node: POST `https://YOUR_APP_DOMAIN/api/wa`, Header `X-WA-Relay-Secret` = वही secret (Header Auth credential में रखें), JSON body Expression `{{ $json }}`, Continue On Fail OFF.
+पूरा Trigger JSON भेजें. अलग Meta send node नहीं: `/api/wa` स्वयं reply भेजता है. Invalid relay secret पर 401 आएगा.
+
+n8n भी न रखें तो Meta callback `https://YOUR_APP_DOMAIN/api/wa`; Cloudflare में `WA_VERIFY_TOKEN` और `WA_APP_SECRET` (Meta App Secret) set करें. Meta में same verify token और `messages` subscription. Direct webhook signature validate होती है. इस mode में n8n inactive रखें.
+
+### 6. Packing values — ध्यान से verify करें
+
+App के existing defaults रखे हैं, आपके वास्तविक packing से अलग हो तो live orders से पहले बदलें:
+
+| Product | बोरा के अंदर | थैला के अंदर |
+|---|---|---|
+| Atta Gold 23KG | 1 unit | ग्राहक से नहीं पूछा जाता |
+| Atta 18KG | 3 थैला | ग्राहक से नहीं पूछा जाता |
+| Atta 10KG | 5 थैला | ग्राहक से नहीं पूछा जाता |
+| Atta 5KG | 10 थैला | ग्राहक से नहीं पूछा जाता |
+| Sattu/Besan 200g | 50 packets | 10 packets |
+| Sattu/Besan 500g | 20 packets | 4 packets |
+
+Atta की quantity customer से बोरा में है; Order Book में underlying थैला units/सही rate के साथ save होती है. उदाहरण: 10KG के 2 बोरा = 10 थैला. Master 10KG ₹200/थैला हो तो confirmation ₹1,000/बोरा, total ₹2,000.
+
+Sattu/Besan packet counts `sg_wa_cfg.pk` में हैं; missing config पर ऊपर के defaults लागू होते हैं. नीचे query **तभी** चलाएँ जब आपका 200g Sattu थैला सच में 12 packets का हो:
+
+```sql
+UPDATE public.sg_store
+SET value = jsonb_set(value, '{v,pk}',
+  COALESCE(value->'v'->'pk',
+    '{"sattu":{"200":{"bora":50,"thaila":10},"500":{"bora":20,"thaila":4}},"besan":{"200":{"bora":50,"thaila":10},"500":{"bora":20,"thaila":4}}}'::jsonb)
+  || jsonb_build_object('sattu',
+      COALESCE(value->'v'->'pk'->'sattu','{"200":{"bora":50,"thaila":10},"500":{"bora":20,"thaila":4}}'::jsonb)
+      || jsonb_build_object('200',COALESCE(value->'v'->'pk'->'sattu'->'200','{"bora":50}'::jsonb)||'{"thaila":12}'::jsonb))),
+  updated_at=(extract(epoch from clock_timestamp())*1000)::bigint, synced_at=now()
+WHERE key='sg_wa_cfg';
+```
+
+### 7. सिर्फ छोटे live checks
+
+1. Registered customer से Hi → 3 clickable buttons.
+2. Order → Atta → 10KG → 2 → confirmation rate/total सही → Confirm → app Order Book.
+3. Rate Objection में दूसरे customer का receipt number → reject; अपनी receipt → item → rate → Confirm Submit → app से decision → WhatsApp reply.
+4. Creditor से Hi → Master Wheat rate.
+
+Automated check: `npm test` — in-memory PostgreSQL, Meta calls mocked; production DB/customer messages नहीं छूता. Live Adminer migration, n8n import/activation, template approval और actual WhatsApp delivery आपको ऊपर settings के बाद verify करनी हैं.
+
+Troubleshooting:
+- पुराना numbered/text menu: पुराना workflow अभी active है या पुराना SQL function चल रहा है.
+- Button tap पर कुछ नहीं: text-only IF हटाएँ; `interactive.*_reply.id` extract करें.
+- `relation/function does not exist`: गलत database/schema या migration नहीं चली.
+- Unknown number / receipt mismatch: app mobile + exact receipt name/address + successful cloud sync जाँचें. `sg_wa_cust` summary bot को चाहिए.
+- `401 Owner access key`: deployed `WA_ADMIN_TOKEN` और app में भरी key समान हो; secrets के बाद redeploy.
+- Meta `190`: invalid/expired token. `131047`/24h: approved template या नया Hi, फिर Retry.
+- URL 404: app Functions deploy नहीं हुई या गलत domain. n8n editor domain को app domain न समझें.
+- Pending app data: sync पूरा होने दें; approval के बीच उसी receipt को दूसरे tab/device से edit न करें. Notebook के बाकी sync में existing last-write-wins model है; यह पूर्ण multi-user ledger locking system नहीं है.
+- Owner/admin APIs और database को public/untrusted access से सुरक्षित रखें. Notebook का existing `/api/sync` access model अलग है; frontend login को server authorization न समझें. Secrets किसी customer को न दें.
+
+Debug (Adminer, owner only):
+
+```sql
+SELECT phone,dir,body,created_at FROM wa_log ORDER BY id DESC LIMIT 20;
+SELECT objection_id,delivery,last_error,meta_id FROM wa_decisions ORDER BY updated_at DESC LIMIT 20;
+```

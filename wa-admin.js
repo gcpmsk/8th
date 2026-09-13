@@ -7,18 +7,24 @@
    ===================================================================== */
 'use strict';
 const WA_OBJ='sg_wa_obj', WA_CUST='sg_wa_cust';
-const waF=n=>'₹'+Math.round(Number(n)||0).toLocaleString('en-IN');
+const waF=n=>'₹'+(Number(n)||0).toLocaleString('en-IN',{maximumFractionDigits:2});
 const waN=v=>{ const n=parseFloat(v); return isNaN(n)?0:n; };
 
 /* ---------- 1) customer summary publish (30 sec) ---------- */
 function waPublishCust(){
   try{
     if(typeof tvBuild!=='function') return;
-    const D=tvBuild(true); const out={};
+    const D=tvBuild(true); const out={}; const blocked=new Set();
+    const publish=(mob,record)=>{
+      if(blocked.has(mob)) return;
+      if(out[mob] && out[mob].key!==record.key){ delete out[mob]; blocked.add(mob); return; }
+      record.isCreditor=record.type==='cred'||!!out[mob]?.isCreditor;
+      out[mob]=record;
+    };
     /* Creditor (गेहूँ देने वाले) भी — bot इन्हें Wheat का Master rate दिखाता है (type:'cred') */
     (D.cred||[]).forEach(d=>{
       const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
-      out[mob]={name:d.name, address:d.address||'', key:d.key, type:'cred', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:0, receipts:[], paid:[], t:Date.now()};
+      publish(mob,{name:d.name, address:d.address||'', key:d.key, type:'cred', area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:0, receipts:[], paid:[], t:Date.now()});
     });
     (D.deb||[]).forEach(d=>{
       const mob=String((typeof tvMob==='function'?tvMob(d.key):'')||'').replace(/\D/g,'').slice(-10); if(mob.length!==10) return;
@@ -27,7 +33,7 @@ function waPublishCust(){
         return {rno:x.rno, rdate:x.rdate||x.date, sdate:x.sdate, idx:x.sidx, total:x.amt, cut:!!x.cut,
           items:items.map(i=>({name:i.name,qty:waN(i.qty),rate:waN(i.rate),amount:waN(i.amount)}))}; });
       const paid=(d.paid||[]).filter(p=>!p.cut).slice(-5).reverse().map(p=>({date:p.date,amt:p.amt,mode:p.mode||'Cash'}));
-      out[mob]={name:d.name, address:d.address||'', key:d.key, area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:Math.max(0,Math.round(d.bal||0)), receipts, paid, t:Date.now()};
+      publish(mob,{name:d.name, address:d.address||'', key:d.key, area:(typeof tvArea==='function'?tvArea(d.address):'OTHER'), due:Math.max(0,Math.round(d.bal||0)), receipts, paid, t:Date.now()});
     });
     const old=localStorage.getItem(WA_CUST)||''; const nw=JSON.stringify(out);
     /* सिर्फ़ बदलने पर लिखो (t हटा कर compare) */
@@ -41,17 +47,38 @@ function waObjs(){ try{ return JSON.parse(localStorage.getItem(WA_OBJ)||'[]')||[
 function waObjSave(a){ localStorage.setItem(WA_OBJ,JSON.stringify(a)); }
 function waOpenCount(){ return waObjs().filter(o=>o.status==='open').length; }
 
-async function waSendMsg(to,text){
-  try{ const r=await fetch('/api/wa-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to,text})});
-    const j=await r.json().catch(()=>({})); return !!j.ok; }catch(e){ return false; }
+// Owner key lives only in this tab's JS memory, never localStorage/cloud sync.
+let waOwnerKey='';
+async function waAdminApi(body){
+  if(!waOwnerKey){
+    waOwnerKey=await new Promise(resolve=>popup({title:'Owner access key',
+      body:'<label>WA_ADMIN_TOKEN <input id="wa-owner-key" type="password" autocomplete="off"></label>',
+      foot:'<button class="pp-btn cancel" id="wa-key-cancel">Cancel</button><button class="pp-btn save" id="wa-key-save">Continue</button>',
+      onOpen(el){
+        el.querySelector('#wa-key-save').onclick=()=>{const key=el.querySelector('#wa-owner-key').value.trim();closePopup();resolve(key);};
+        el.querySelector('#wa-key-cancel').onclick=()=>{closePopup();resolve('');};
+      }}));
+    if(!waOwnerKey) throw new Error('Owner key required');
+  }
+  const r=await fetch('/api/wa-send',{method:body?'POST':'GET',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+waOwnerKey},
+    ...(body?{body:JSON.stringify(body)}:{})});
+  const j=await r.json();
+  if(r.status===401) waOwnerKey='';
+  if(!r.ok||!j.ok) throw new Error(j.error||'Database request failed');
+  return j;
 }
 
-function waObjPopup(){
-  const all=waObjs(); const open=all.filter(o=>o.status==='open'), done=all.filter(o=>o.status!=='open').slice(-15).reverse();
+async function waObjPopup(){
+  let all;
+  try { all=(await waAdminApi()).objects; } catch(e) { toast(e.message); return; }
+  const open=all.filter(o=>o.status==='open');
+  const done=all.filter(o=>o.status!=='open').reverse();
   const row=o=>`<div class="wa-ob ${o.status}" data-obj="${esc(o.id)}">
       <div class="wa-ob-h"><b>${esc(o.name)}</b> <small>${esc(o.address||'')} · 📱 ${esc(String(o.phone||'').slice(-10))}</small><span class="wa-ob-t">🕐 ${esc(o.ts)} · ${esc(o.date)}</span></div>
       <div class="wa-ob-b">🧾 R.No <b>${esc(o.rno)}</b> · ${esc(o.rdate)} — <b>${esc(o.item)}</b> ${esc(String(o.qty))} × <s>${waF(o.oldRate)}</s> → customer चाहता है <b class="g">${waF(o.newRate)}</b>
         ${o.status!=='open'?`<div class="wa-ob-r">${o.status==='deny'?'❌ Deny':'✅ नया rate '+waF(o.finalRate)} · ${esc(o.rts||'')}${o.reply?' · <i>'+esc(o.reply)+'</i>':''}</div>`:''}</div>
+      ${o.status!=='open'?`<div>WhatsApp: ${esc(o.delivery==='accepted'?'Meta accepted (delivery की guarantee नहीं)':o.deliveryError||'Pending')} ${o.delivery!=='accepted'?'<button class="pp-btn save wa-retry">Retry WhatsApp</button>':''}</div>`:''}
       ${o.status==='open'?`<div class="wa-ob-f"><label>Rate ₹</label><input type="number" inputmode="decimal" class="wa-rate" value="${esc(String(o.newRate))}">
         <button class="pp-btn save wa-keep">✓ Customer का rate रखें</button>
         <button class="pp-btn save wa-set">✏️ मेरा rate लगाएँ</button>
@@ -64,49 +91,24 @@ function waObjPopup(){
     foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">बंद</button>`,
     onOpen(bk){
       bk.addEventListener('click',async e=>{
-        const b=e.target.closest('.wa-keep,.wa-set,.wa-deny'); if(!b) return;
-        const card=b.closest('.wa-ob'); const id=card.dataset.obj; const all=waObjs(); const o=all.find(x=>x.id===id); if(!o) return;
-        const inp=card.querySelector('.wa-rate');
-        let act = b.classList.contains('wa-deny')?'deny':'set';
-        let rate = b.classList.contains('wa-keep')? waN(o.newRate) : waN(inp.value);
-        if(act==='set' && !(rate>0)){ toast('सही rate भरें'); return; }
-        if(act==='set' && Math.abs(rate-o.oldRate)<0.01) act='deny';
-        b.disabled=true; b.textContent='⏳';
-        let msg='';
-        if(act==='deny'){
-          o.status='deny'; o.finalRate=o.oldRate;
-          msg=`🙏 ${o.name} जी,\nआपकी objection (R.No ${o.rno} · ${o.rdate} · ${o.item}) देखी गयी।\nRate ${waF(o.oldRate)} सही है — कोई बदलाव नहीं किया जा सका।\nधन्यवाद 🌾 SATYAM GOLD`;
-        } else {
-          const res=waApplyRate(o,rate);
-          o.status='ok'; o.finalRate=rate; o.oldTotal=res.oldTotal; o.newTotal=res.newTotal;
-          msg=`🙏 ${o.name} जी,\nआपकी objection मान ली गयी ✅\n🧾 R.No ${o.rno} · ${o.rdate}\n📦 ${o.item} ${o.qty} × ${waF(o.oldRate)} ➜ *${waF(rate)}*\nReceipt: ${waF(res.oldTotal)} ➜ *${waF(res.newTotal)}*\n💰 अब बाक़ी: *${waF(res.due)}*\n🕐 ${nowTS()} · ${todayStr()}\nधन्यवाद 🌾 SATYAM GOLD`;
-        }
-        o.rts=nowTS()+' · '+todayStr(); o.reply=(act==='deny'?'Deny':'Rate '+waF(rate));
-        waObjSave(all);
-        const sent=await waSendMsg(o.phone,msg);
-        toast(sent?'✔ Customer को WhatsApp चला गया':'⚠️ Save हुआ, WhatsApp नहीं गया (WA_TOKEN check)');
-        try{ if(typeof logChange==='function') logChange({sec:'Debtors',what:'WA Objection '+(act==='deny'?'Deny':'Rate बदला'),name:o.name,old:o.oldRate,neu:(act==='deny'?o.oldRate:rate),note:'R.No '+o.rno+' (WA)'}); }catch(e){}
-        closePopup(); waObjPopup(); if(typeof renderOrderBook==='function') renderOrderBook();
+        const b=e.target.closest('.wa-keep,.wa-set,.wa-deny,.wa-retry'); if(!b) return;
+        const card=b.closest('.wa-ob'); const id=card.dataset.obj; const o=all.find(x=>x.id===id); if(!o) return;
+        const action=b.classList.contains('wa-retry')?'retry':b.classList.contains('wa-deny')?'deny':b.classList.contains('wa-keep')?'accept':'set';
+        const rate=Number(card.querySelector('.wa-rate')?.value);
+        if(action==='set' && (!Number.isFinite(rate)||rate<=0)){toast('सही rate भरें');return;}
+        if(window.sgSync?.status().pending){window.sgSync.push();toast('पहले pending app data sync होने दें, फिर दोबारा करें.');return;}
+        if(action!=='retry' && !window.confirm(`R.No ${o.rno} | ${o.item}: ${action==='deny'?'Reject':waF(action==='accept'?o.newRate:rate)} — Confirm?`)) return;
+        card.querySelectorAll('button').forEach(x=>x.disabled=true);
+        try {
+          const result=await waAdminApi({id,action,rate:action==='set'?rate:undefined});
+          toast(result.sent?'Decision saved; WhatsApp Meta ने accept किया.':'Decision saved; WhatsApp pending: '+result.error);
+          window.sgSync?.pull();
+          closePopup(); await waObjPopup();
+        } catch(e) { toast(e.message); card.querySelectorAll('button').forEach(x=>x.disabled=false); }
+
       });
     }
   });
-}
-
-/* receipt में rate बदलो → item amount, total, debtor due (tvAmt) update; पुराना cut + stamp (WA) */
-function waApplyRate(o,rate){
-  const k='sg_arcpt_'+o.sdate; let list=[]; try{ list=JSON.parse(localStorage.getItem(k)||'[]')||[]; }catch(e){}
-  let r=list[o.rcIdx]; if(!r||String(r.no)!==String(o.rno)) r=list.find(x=>String(x.no)===String(o.rno));
-  if(!r) return {oldTotal:o.total,newTotal:o.total,due:0};
-  const oldTotal=waN(r.total);
-  (r.items||[]).forEach(it=>{ if(it.name===o.item && Math.abs(waN(it.rate)-o.oldRate)<0.01){ it.rateOld=it.rate; it.rate=String(rate); it.amount=(waN(it.qty)*rate).toFixed(2); it.waEdit=true; } });
-  const newTotal=(r.items||[]).reduce((a,x)=>a+waN(x.amount),0);
-  if(r.tvAmtOld===undefined||r.tvAmtOld===null) r.tvAmtOld=(r.tvAmt!==undefined&&r.tvAmt!==null)?waN(r.tvAmt):oldTotal;
-  r.tvAmt=newTotal; r.total=newTotal.toFixed(2); r.tvEts=nowTS()+' (WA)'; if(o.sdate!==todayStr()) r.tvEdate=todayStr();
-  r.waNote=`WA objection: ${o.item} ${waF(o.oldRate)} → ${waF(rate)} · ${r.tvEts} ${todayStr()}`;
-  localStorage.setItem(k,JSON.stringify(list));
-  let due=0; try{ const D=tvBuild(true); const d=(D.deb||[]).find(x=>x.key===o.custKey||x.name===o.name); due=Math.max(0,Math.round((d||{}).bal||0)); }catch(e){}
-  waPublishCust();
-  return {oldTotal,newTotal,due};
 }
 
 /* ---------- Standalone Home tile, like Notebook / Order Book ---------- */

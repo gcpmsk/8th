@@ -95,7 +95,7 @@ export async function onRequestPost({ request, env }) {
     let saved = 0;
     for (const it of items) {
       const key = String(it?.key || '');
-      if (!key || !key.startsWith('sg_') || key.length > 300) continue;
+      if (!key || !key.startsWith('sg_') || key.length > 300 || key === 'sg_wa_obj') continue;
 
       const ts = Number(it.updated_at) || Date.now();
       const wrapped = (it.value === null || it.value === undefined)
