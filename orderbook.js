@@ -270,7 +270,10 @@ function nameBlockHTML(o){
   return `<span class="ob-nm2"><span class="en">${esc((o.name||'').toUpperCase())}${o.address?` <small>— ${esc((o.address||'').toUpperCase())}</small>`:''}</span>${(o.nameHi||o.addressHi)?`<span class="hi">${esc(o.nameHi||'')}${o.addressHi?` — ${esc(o.addressHi)}`:''}</span>`:''}</span>`;
 }
 function isWhatsAppOrder(o){ return !!o && (o.wa===true || o.src==='wa' || /\(WA\)/.test(o.tvEts||'')); }
-function waOrderBadge(o){ return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':''; }
+function isCollOrder(o){ return !!o && (o.src==='coll' || !!o.coll); }
+function waOrderBadge(o){
+  if(isCollOrder(o)) return `<span class="ob-tag coll-source" title="Collection App: ${esc(o.collBy||'')}">📒 ${esc(o.coll||'COLL')}</span>`;
+  return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':''; }
 function orderCardHTML(o,isBack){
   const a=areaOf(o.address);
   const part=!!(o.deliv&&o.deliv.length);
