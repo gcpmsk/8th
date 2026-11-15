@@ -47,27 +47,34 @@ function waObjs(){ try{ return JSON.parse(localStorage.getItem(WA_OBJ)||'[]')||[
 function waObjSave(a){ localStorage.setItem(WA_OBJ,JSON.stringify(a)); }
 function waOpenCount(){ return waObjs().filter(o=>o.status==='open').length; }
 
-// Owner key lives only in this tab's JS memory, never localStorage/cloud sync.
-let waOwnerKey='';
-async function waAdminApi(body){
-  if(!waOwnerKey){
-    waOwnerKey=await new Promise(resolve=>popup({title:'Owner access key',
-      body:'<label>WA_ADMIN_TOKEN <input id="wa-owner-key" type="password" autocomplete="off"></label>',
-      foot:'<button class="pp-btn cancel" id="wa-key-cancel">Cancel</button><button class="pp-btn save" id="wa-key-save">Continue</button>',
-      onOpen(el){
-        el.querySelector('#wa-key-save').onclick=()=>{const key=el.querySelector('#wa-owner-key').value.trim();closePopup();resolve(key);};
-        el.querySelector('#wa-key-cancel').onclick=()=>{closePopup();resolve('');};
-      }}));
-    if(!waOwnerKey) throw new Error('Owner key required');
-  }
-  const r=await fetch('/api/wa-send',{method:body?'POST':'GET',
-    headers:{'Content-Type':'application/json',Authorization:'Bearer '+waOwnerKey},
+// Owner key: एक बार भरने पर इसी device/browser में याद रहता है (localStorage '__wa_key').
+// नाम 'sg_' से शुरू नहीं होता, इसलिए cloud/Postgres में sync नहीं होता. गलत निकले (401) तो अपने आप हट कर दोबारा पूछता है.
+const WA_KEY_LS='__wa_key';
+let waOwnerKey=''; try{ waOwnerKey=localStorage.getItem(WA_KEY_LS)||''; }catch(e){}
+async function waAskKey(){
+  if(waOwnerKey) return waOwnerKey;
+  waOwnerKey=await new Promise(resolve=>popup({title:'Owner access key',
+    body:'<label>WA_ADMIN_TOKEN <input id="wa-owner-key" type="password" autocomplete="off"></label><div class="pp-note" style="margin-top:8px">सिर्फ़ एक बार — इस device पर याद रहेगा.</div>',
+    foot:'<button class="pp-btn cancel" id="wa-key-cancel">Cancel</button><button class="pp-btn save" id="wa-key-save">Continue</button>',
+    onOpen(el){
+      el.querySelector('#wa-key-save').onclick=()=>{const key=el.querySelector('#wa-owner-key').value.trim();closePopup();resolve(key);};
+      el.querySelector('#wa-key-cancel').onclick=()=>{closePopup();resolve('');};
+    }}));
+  if(!waOwnerKey) throw new Error('Owner key required');
+  return waOwnerKey;
+}
+async function waOwnerCall(path,body){
+  const key=await waAskKey();
+  const r=await fetch(path,{method:body?'POST':'GET',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},
     ...(body?{body:JSON.stringify(body)}:{})});
-  const j=await r.json();
-  if(r.status===401) waOwnerKey='';
+  const j=await r.json().catch(()=>({ok:false,error:'Server से सही जवाब नहीं मिला (HTTP '+r.status+')'}));
+  if(r.status===401){ waOwnerKey=''; try{localStorage.removeItem(WA_KEY_LS);}catch(e){} }
+  else if(r.ok&&j.ok){ try{localStorage.setItem(WA_KEY_LS,key);}catch(e){} }   // सही निकला तभी याद रखो
   if(!r.ok||!j.ok) throw new Error(j.error||'Database request failed');
   return j;
 }
+const waAdminApi=body=>waOwnerCall('/api/wa-send',body);
 
 async function waObjPopup(){
   let all;
@@ -120,17 +127,29 @@ async function waObjPopup(){
   .wa-ob-b{margin-top:6px;line-height:1.5}.wa-ob-b .g{color:#1e8449}.wa-ob-r{color:#444;font-size:13px;margin-top:4px}
   .wa-ob-f{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.wa-ob-f input{width:110px;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:16px}
   .wa-ob-done{margin:14px 0 4px;font-weight:700;color:#888;border-top:1px dashed #ccc;padding-top:8px}
-  #wa-main-btn .n,#ob-wa-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
+  .wa-ch{cursor:pointer}.wa-ch:hover{background:#fff6dc}
+  .wa-ch-bar{display:flex;gap:6px;align-items:center;margin-bottom:8px}.wa-ch-bar input{flex:1;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:15px}
+  .wa-ch-days{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.wa-ch-day{border:1px solid #d9cfa8;background:#fff;border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer}.wa-ch-day.on{background:#1e8449;color:#fff;border-color:#1e8449}
+  .wa-chat{background:#efe7d8;border-radius:10px;padding:10px;max-height:52vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+  .wa-bub{max-width:82%;padding:6px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.15);word-break:break-word}
+  .wa-bub small{display:block;text-align:right;font-size:11px;color:#777;margin-top:2px}
+  .wa-bub.in{align-self:flex-start;background:#fff}.wa-bub.out{align-self:flex-end;background:#d9fdd3}
+    #wa-main-btn .n,#ob-wa-btn .n{background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;margin-left:4px;font-size:12px}`;
   document.head.appendChild(css);
-  /* 💬 WhatsApp button → popup में 📣 Objection (और आज के WA orders) */
+  /* 💬 WhatsApp button → 📣 Objection · 🧾 Receipts (failed) · 💬 Chats */
   function waMainPopup(){
     const n=waOpenCount();
-    let wa=0; try{ (JSON.parse(localStorage.getItem('sg_ord_'+todayStr()))||[]).forEach(o=>{ if(o.src==='wa'||o.wa||/\(WA\)/.test(o.tvEts||'')) wa++; }); }catch(e){}
     popup({ title:'💬 WhatsApp', body:`<div style="display:flex;flex-direction:column;gap:10px;padding:6px 0">
       <button class="nb-tool grey" id="wa-pp-obj" style="font-size:16px">📣 Objection${n?` <span class="n" style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:12px">${n}</span>`:''}</button>
-      <div style="font-size:14px;color:#555">आज WhatsApp से आये order: <b>${wa}</b> (Order Book में दिखते हैं)</div>
-      <div style="font-size:12px;color:#888">Customer confirm करता है → order सीधे Order Book (Postgres sg_ord_) में आता है.</div></div>`,
-      onOpen:(el)=>{ el.querySelector('#wa-pp-obj').addEventListener('click',()=>{ closePopup(); waObjPopup(); }); } });
+      <button class="nb-tool grey" id="wa-pp-rcpt" style="font-size:16px">🧾 Receipts <span class="n" id="wa-rc-n" hidden></span></button>
+      <button class="nb-tool grey" id="wa-pp-chat" style="font-size:16px">💬 Chatting (Customers)</button></div>`,
+      onOpen:(el)=>{
+        el.querySelector('#wa-pp-obj').addEventListener('click',()=>{ closePopup(); waObjPopup(); });
+        el.querySelector('#wa-pp-rcpt').addEventListener('click',()=>{ closePopup(); waRcptPopup(); });
+        el.querySelector('#wa-pp-chat').addEventListener('click',()=>{ closePopup(); waChatPopup(); });
+        waOwnerCall('/api/wa-owner?view=receipts').then(j=>{ const f=j.counts.failed+j.counts.stuck, b=el.querySelector('#wa-rc-n');
+          if(b&&f){ b.hidden=false; b.textContent=f+' failed'; b.style.cssText='background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:12px'; } }).catch(()=>{});
+      } });
   }
   window.waMainPopup=waMainPopup;
   const wire=()=>{
@@ -146,4 +165,69 @@ async function waObjPopup(){
   };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire); else wire();
 })();
-window.waObjPopup=waObjPopup; window.waPublishCust=waPublishCust;
+
+/* ---------- 🧾 Receipts — WhatsApp payment receipt (failed ऊपर, Retry) ---------- */
+async function waRcptPopup(all){
+  let j; try{ j=await waOwnerCall('/api/wa-owner?view=receipts'+(all?'&filter=all':'')); }catch(e){ toast(e.message); return; }
+  const bad=j.receipts.filter(r=>r.status==='failed'||r.status==='pending'||r.status==='sending');
+  const row=r=>{ const st=r.status==='sent'?`✅ ${r.delivery==='read'?'Read':r.delivery==='delivered'?'Delivered':'Sent'}`:r.status==='failed'?'❌ Failed':'⏳ Pending';
+    return `<div class="wa-ob ${r.status==='sent'?'ok':r.status==='failed'?'deny':''}" data-rc="${esc(String(r.id))}">
+      <div class="wa-ob-h"><b>${esc(r.name)}</b> <small>${esc(r.data?.address||'')}${r.phone?' · 📱 '+esc(String(r.phone).slice(-10)):''}</small><span class="wa-ob-t">🕐 ${esc(r.at)}</span></div>
+      <div class="wa-ob-b">₹${esc(String(r.amount))} · ${esc(r.data?.mode||'')} · ${esc(r.source==='coll'?'Collection':'Notebook')} — <b>${st}</b>${r.tries>1?' · '+r.tries+' try':''}
+        ${r.error?`<div class="wa-ob-r">⚠️ ${esc(r.error)}</div>`:''}</div>
+      ${r.status!=='sent'?`<div class="wa-ob-f"><button class="pp-btn save wa-rc-retry">🔁 Retry भेजें</button></div>`:''}</div>`; };
+  popup({ title:`🧾 WhatsApp Receipts <small>(${j.counts.failed} failed · ${j.counts.sent} sent)</small>`,
+    body:`<div class="pp-note">Notebook / Collection में जमा होते ही customer को receipt WhatsApp पर अपने आप जाती है. जो नहीं गई वो नीचे <b>Failed</b> में दिखेगी — कारण पढ़ें (जैसे mobile नहीं भरा) और ठीक करके <b>Retry</b> दबाएँ. एक receipt सिर्फ़ एक ही बार जाती है.</div>
+      <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button class="pp-btn cancel" id="wa-rc-all">${all?'सिर्फ़ Failed दिखाओ':'सारी receipts दिखाओ'}</button>${bad.length>1?'<button class="pp-btn save" id="wa-rc-retryall">🔁 सारी Failed Retry</button>':''}</div>
+      ${j.receipts.length? j.receipts.map(row).join('') : '<div class="ob-empty">कोई failed receipt नहीं 🎉</div>'}`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">बंद</button>`,
+    onOpen(bk){
+      bk.querySelector('#wa-rc-all').onclick=()=>{ closePopup(); waRcptPopup(!all); };
+      const run=async(btn,body)=>{ btn.disabled=true;
+        try{ const r=await waOwnerCall('/api/wa-owner',body); toast(`भेजी: ${r.sent} · fail: ${r.failed}`); }catch(e){ toast(e.message); }
+        closePopup(); waRcptPopup(all); };
+      bk.querySelector('#wa-rc-retryall')?.addEventListener('click',e=>run(e.target,{action:'retry_all'}));
+      bk.addEventListener('click',e=>{ const b=e.target.closest('.wa-rc-retry'); if(b) run(b,{action:'retry',id:b.closest('.wa-ob').dataset.rc}); });
+    } });
+}
+
+/* ---------- 💬 Chatting — कौन customers ने chat की + पूरी history (date बदल कर) ---------- */
+function waISO(dmy){ const p=String(dmy).split('-'); return p.length===3?p[2]+'-'+p[1]+'-'+p[0]:''; }
+function waDMY(iso){ const p=String(iso).split('-'); return p.length===3?p[2]+'-'+p[1]+'-'+p[0]:''; }
+async function waChatPopup(date){
+  date=date||(typeof todayStr==='function'?todayStr():waDMY(new Date(Date.now()+19800000).toISOString().slice(0,10)));
+  let j; try{ j=await waOwnerCall('/api/wa-owner?view=chats&date='+encodeURIComponent(date)); }catch(e){ toast(e.message); return; }
+  popup({ title:`💬 Customer Chatting <small>(${j.total} customers)</small>`,
+    body:`<div class="wa-ch-bar"><button class="pp-btn cancel" id="wa-ch-prev">◀</button><input type="date" id="wa-ch-date" value="${esc(waISO(date))}"><button class="pp-btn cancel" id="wa-ch-next">▶</button></div>
+      ${j.days.length?`<div class="wa-ch-days">${j.days.slice(0,10).map(d=>`<button class="wa-ch-day${d.d===date?' on':''}" data-d="${esc(d.d)}">${esc(d.d)} <b>${d.n}</b></button>`).join('')}</div>`:''}
+      ${j.chats.length? j.chats.map(c=>`<div class="wa-ob wa-ch" data-ph="${esc(c.phone)}"><div class="wa-ob-h"><b>${esc(c.name||'अज्ञात number')}</b> <small>${esc(c.address)} · 📱 ${esc(String(c.phone).slice(-10))}</small><span class="wa-ob-t">${c.msgs} msg · ${esc(c.last)}</span></div></div>`).join('')
+        : '<div class="ob-empty">इस तारीख़ को कोई chat नहीं</div>'}`,
+    foot:`<span></span><button class="pp-btn cancel" onclick="closePopup()">बंद</button>`,
+    onOpen(bk){
+      const go=d=>{ if(d){ closePopup(); waChatPopup(d); } };
+      const shift=n=>{ const t=new Date(waISO(date)+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+n); return waDMY(t.toISOString().slice(0,10)); };
+      bk.querySelector('#wa-ch-date').onchange=e=>go(waDMY(e.target.value));
+      bk.querySelector('#wa-ch-prev').onclick=()=>go(shift(-1)); bk.querySelector('#wa-ch-next').onclick=()=>go(shift(1));
+      bk.addEventListener('click',e=>{
+        const d=e.target.closest('.wa-ch-day'); if(d) return go(d.dataset.d);
+        const c=e.target.closest('.wa-ch'); if(c){ closePopup(); waChatView(c.dataset.ph,date); } });
+    } });
+}
+async function waChatView(phone,date){
+  let j; try{ j=await waOwnerCall('/api/wa-owner?view=chat&phone='+phone+'&date='+encodeURIComponent(date)); }catch(e){ toast(e.message); waChatPopup(date); return; }
+  const bub=m=>`<div class="wa-bub ${m.dir==='in'?'in':'out'}"><div>${esc(m.text).replace(/\n/g,'<br>')}</div><small>${esc(m.t)}</small></div>`;
+  popup({ title:`💬 ${esc(j.name||'अज्ञात')} <small>📱 ${esc(String(phone).slice(-10))} · ${esc(date)}</small>`,
+    body:`<div class="wa-ch-bar"><button class="pp-btn cancel" id="wa-cv-prev">◀</button><input type="date" id="wa-cv-date" value="${esc(waISO(date))}"><button class="pp-btn cancel" id="wa-cv-next">▶</button></div>
+      <div class="wa-chat">${j.messages.length? j.messages.map(bub).join('') : '<div class="ob-empty">इस तारीख़ को इस customer की chat नहीं</div>'}</div>`,
+    foot:`<button class="pp-btn cancel" id="wa-cv-back">← Customers</button><button class="pp-btn cancel" onclick="closePopup()">बंद</button>`,
+    onOpen(bk){
+      const go=d=>{ if(d){ closePopup(); waChatView(phone,d); } };
+      const shift=n=>{ const t=new Date(waISO(date)+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+n); return waDMY(t.toISOString().slice(0,10)); };
+      bk.querySelector('#wa-cv-date').onchange=e=>go(waDMY(e.target.value));
+      bk.querySelector('#wa-cv-prev').onclick=()=>go(shift(-1)); bk.querySelector('#wa-cv-next').onclick=()=>go(shift(1));
+      bk.querySelector('#wa-cv-back').onclick=()=>{ closePopup(); waChatPopup(date); };
+      const box=bk.querySelector('.wa-chat'); if(box) box.scrollTop=box.scrollHeight;
+    } });
+}
+
+window.waObjPopup=waObjPopup; window.waPublishCust=waPublishCust; window.waRcptPopup=waRcptPopup; window.waChatPopup=waChatPopup;

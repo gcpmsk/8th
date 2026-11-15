@@ -291,6 +291,18 @@ BEGIN
   RETURN wa_btn(ph,format(E'*SATYAM GOLD | खाता*\n%s\n%s\nपेज %s / %s\n\n%s',left(cust->>'name',80),left(COALESCE(cust->>'address',''),80),page_+1,array_length(pages,1),pages[page_+1]),buttons);
 END $$;
 
+-- Customer का सबसे पुराना deliver न हुआ order (नाम + पता, Order Book जैसा) — नहीं हो तो NULL
+CREATE OR REPLACE FUNCTION public.wa_pending_order(p_name TEXT, p_addr TEXT) RETURNS JSONB
+LANGUAGE sql STABLE SET search_path = public AS $$
+  SELECT jsonb_build_object('key', s.key, 'ix', (a.n-1)::int, 'order', a.o)
+  FROM sg_store s, jsonb_array_elements(CASE WHEN jsonb_typeof(s.value->'v')='array' THEN s.value->'v' ELSE '[]'::jsonb END) WITH ORDINALITY a(o,n)
+  WHERE s.key ~ '^sg_ord_[0-9]{2}-[0-9]{2}-[0-9]{4}$'
+    AND wa_norm(a.o->>'name') = wa_norm(p_name) AND wa_norm(a.o->>'address') = wa_norm(p_addr)
+    AND NOT COALESCE((a.o->>'cancelled')::boolean,false)
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.o->'items')='array' THEN a.o->'items' ELSE '[]'::jsonb END) i WHERE wa_num(i->>'qty') > 0)
+  ORDER BY substr(s.key,14,4)||substr(s.key,11,2)||substr(s.key,8,2), a.n
+  LIMIT 1 $$;
+
 CREATE OR REPLACE FUNCTION public.wa_handle(p_phone TEXT, p_msg TEXT) RETURNS TEXT
 LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
@@ -303,6 +315,7 @@ DECLARE
   it TEXT; sz TEXT; pk TEXT; iname TEXT; unit TEXT; mul NUMERIC := 1; urate NUMERIC; pnote TEXT := '';
   ord JSONB; cur JSONB; okey TEXT; ln JSONB; li JSONB; step TEXT;
   main_rows JSONB; owned JSONB; matches JSONB; rc JSONB; obj JSONB; ii INT; page INT;
+  pnd JSONB; pkey TEXT; pix INT; pord JSONB; pitems JSONB; pl JSONB; pe INT; ptxt TEXT; pold TEXT; pcur JSONB; ptot TEXT;
 BEGIN
   IF length(ph)=10 THEN ph := '91' || ph; END IF;
   IF ph !~ '^91[0-9]{10}$' THEN RAISE EXCEPTION 'Valid Indian WhatsApp sender required'; END IF;
@@ -386,22 +399,53 @@ BEGIN
         '[{"id":"i_atta","t":"🌾 Atta","d":"23kg Gold · 18kg · 10kg · 5kg"},{"id":"i_sattu","t":"🥣 Sattu","d":"200g / 500g"},{"id":"i_besan","t":"🟡 Besan","d":"200g / 500g"},{"id":"i_chokar","t":"🐄 Chokar","d":"बोरा"}]'::jsonb);
     ELSE
       PERFORM pg_advisory_xact_lock(hashtextextended('wa:orders',0));
-      okey := 'sg_ord_' || wa_ist_date();
-      SELECT COALESCE(value->'v','[]'::jsonb) INTO cur FROM sg_store s WHERE s.key = okey FOR UPDATE; cur := COALESCE(cur,'[]'::jsonb);
-      SELECT COALESCE(max((o->>'no')::INT),0) INTO mx FROM sg_store s, jsonb_array_elements(COALESCE(s.value->'v','[]'::jsonb)) o WHERE s.key LIKE 'sg_ord_%' AND (o->>'no') ~ '^\d+$';
-      ord := jsonb_build_object('id','w'||md5(ph||clock_timestamp()::TEXT), 'no', CASE WHEN mx+1<10 THEN '0'||(mx+1)::TEXT ELSE (mx+1)::TEXT END, 'ts', wa_ist_ts(),
-        'name', nm, 'address', COALESCE(cust->>'address',''), 'wa', true, 'src', 'wa', 'phone', ph,
-        'items', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC,'rate',CASE WHEN (l->>'rate')::NUMERIC>0 THEN l->>'rate' ELSE '' END,'note',(l->>'pack') || CASE WHEN COALESCE(l->>'note','')<>'' THEN ' · '||(l->>'note') ELSE '' END)) FROM jsonb_array_elements(ln) l),
-        'ordered', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC)) FROM jsonb_array_elements(ln) l), 'deliv', '[]'::jsonb);
-      INSERT INTO sg_store (key, value, updated_at) VALUES (okey, jsonb_build_object('v', cur || ord), (EXTRACT(EPOCH FROM now())*1000)::BIGINT)
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at, synced_at = now();
-      SELECT string_agg(format('• %s — %s%s', l->>'name', l->>'pack', CASE WHEN (l->>'amt')::NUMERIC > 0 THEN ' = ' || wa_f((l->>'amt')::NUMERIC) ELSE '' END), E'\n'), sum((l->>'amt')::NUMERIC) INTO lines, tot FROM jsonb_array_elements(ln) l;
-      IF EXISTS(SELECT 1 FROM jsonb_array_elements(ln) l WHERE (l->>'urate')::NUMERIC<=0) THEN tot := NULL; END IF;
-      st := '{}'::jsonb;
-      out := wa_btn(ph, format(E'✅ *Order No %s book हो गया!*\n\n%s\n%s🕐 %s · %s\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।', ord->>'no', lines,
-               CASE WHEN tot > 0 THEN '💰 कुल: *' || wa_f(tot) || E'*\n' ELSE E'कुछ rate pending हैं; final total Owner बताएँगे।\n' END, ord->>'ts', wa_ist_date()),
+      pnd := wa_pending_order(nm, cust->>'address');
+      IF pnd IS NOT NULL THEN
+        -- पुराना deliver न हुआ order मिला → उसी में add (Order Book के "पुराने order में जोड़ दिया" जैसा)
+        pkey := pnd->>'key'; pord := pnd->'order'; pold := substr(pkey,8); pitems := COALESCE(pord->'items','[]'::jsonb);
+        SELECT string_agg(format('• %s × %s', i->>'name', trim_scale(wa_num(i->>'qty'))), E'\n') INTO ptxt FROM jsonb_array_elements(pitems) i WHERE wa_num(i->>'qty')>0;
+        FOR pl IN SELECT x FROM jsonb_array_elements(ln) x LOOP
+          pe := NULL;
+          SELECT (n-1)::int INTO pe FROM jsonb_array_elements(pitems) WITH ORDINALITY a(i,n)
+            WHERE i->>'name' = pl->>'name' AND COALESCE(NULLIF(i->>'d',''), pold) = wa_ist_date() LIMIT 1;
+          IF pe IS NOT NULL THEN
+            pitems := jsonb_set(pitems, ARRAY[pe::text,'qty'], to_jsonb(wa_num(pitems->pe->>'qty') + (pl->>'qty')::numeric));
+            IF COALESCE(pitems->pe->>'rate','')='' AND (pl->>'rate')::numeric>0 THEN pitems := jsonb_set(pitems, ARRAY[pe::text,'rate'], to_jsonb(pl->>'rate')); END IF;
+          ELSE
+            pitems := pitems || jsonb_build_object('name',pl->>'name','qty',(pl->>'qty')::numeric,'rate',CASE WHEN (pl->>'rate')::numeric>0 THEN pl->>'rate' ELSE '' END,
+              'note',(pl->>'pack') || CASE WHEN COALESCE(pl->>'note','')<>'' THEN ' · '||(pl->>'note') ELSE '' END,'d',wa_ist_date());
+          END IF;
+        END LOOP;
+        pord := pord || jsonb_build_object('items',pitems,'ets',wa_ist_ts());
+        IF pold <> wa_ist_date() THEN pord := pord || jsonb_build_object('adds', COALESCE(pord->'adds','[]'::jsonb) || jsonb_build_object('date',wa_ist_date(),'ts',wa_ist_ts())); END IF;
+        SELECT COALESCE(value->'v','[]'::jsonb) INTO pcur FROM sg_store WHERE key=pkey FOR UPDATE;
+        SELECT (n-1)::int INTO pix FROM jsonb_array_elements(pcur) WITH ORDINALITY a(o,n) WHERE o->>'id' = pord->>'id';
+        IF pix IS NULL THEN RAISE EXCEPTION 'Old order changed while saving; send Hi and try again'; END IF;
+        UPDATE sg_store SET value=jsonb_build_object('v', jsonb_set(pcur, ARRAY[pix::text], pord)), updated_at=(EXTRACT(EPOCH FROM now())*1000)::BIGINT, synced_at=now() WHERE key=pkey;
+        SELECT string_agg(format('• %s — %s', l->>'name', l->>'pack'), E'\n') INTO lines FROM jsonb_array_elements(ln) l;
+        st := '{}'::jsonb;
+        out := wa_btn(ph, format(E'✅ *Order No %s में जुड़ गया!*\n\nआपका पुराना order (%s) अभी deliver नहीं हुआ था, इसलिए नया माल उसी में add कर दिया.\n\n*पुराना order:*\n%s\n\n*अभी जोड़ा:*\n%s\n\n🕐 %s · %s\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।',
+               pord->>'no', pold, COALESCE(ptxt,'-'), lines, wa_ist_ts(), wa_ist_date()),
              '[{"id":"m_order","t":"🛒 और Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
-      BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('order', ord, 'name', nm), 'ORDER #' || (ord->>'no')); EXCEPTION WHEN OTHERS THEN NULL; END;
+        BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('order', pord, 'name', nm, 'merged', true), 'ORDER ADD #' || (pord->>'no')); EXCEPTION WHEN OTHERS THEN NULL; END;
+      ELSE
+        okey := 'sg_ord_' || wa_ist_date();
+        SELECT COALESCE(value->'v','[]'::jsonb) INTO cur FROM sg_store s WHERE s.key = okey FOR UPDATE; cur := COALESCE(cur,'[]'::jsonb);
+        SELECT COALESCE(max((o->>'no')::INT),0) INTO mx FROM sg_store s, jsonb_array_elements(COALESCE(s.value->'v','[]'::jsonb)) o WHERE s.key LIKE 'sg_ord_%' AND (o->>'no') ~ '^\d+$';
+        ord := jsonb_build_object('id','w'||md5(ph||clock_timestamp()::TEXT), 'no', CASE WHEN mx+1<10 THEN '0'||(mx+1)::TEXT ELSE (mx+1)::TEXT END, 'ts', wa_ist_ts(),
+          'name', nm, 'address', COALESCE(cust->>'address',''), 'wa', true, 'src', 'wa', 'phone', ph,
+          'items', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC,'rate',CASE WHEN (l->>'rate')::NUMERIC>0 THEN l->>'rate' ELSE '' END,'note',(l->>'pack') || CASE WHEN COALESCE(l->>'note','')<>'' THEN ' · '||(l->>'note') ELSE '' END)) FROM jsonb_array_elements(ln) l),
+          'ordered', (SELECT jsonb_agg(jsonb_build_object('name',l->>'name','qty',(l->>'qty')::NUMERIC)) FROM jsonb_array_elements(ln) l), 'deliv', '[]'::jsonb);
+        INSERT INTO sg_store (key, value, updated_at) VALUES (okey, jsonb_build_object('v', cur || ord), (EXTRACT(EPOCH FROM now())*1000)::BIGINT)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at, synced_at = now();
+        SELECT string_agg(format('• %s — %s%s', l->>'name', l->>'pack', CASE WHEN (l->>'amt')::NUMERIC > 0 THEN ' = ' || wa_f((l->>'amt')::NUMERIC) ELSE '' END), E'\n'), sum((l->>'amt')::NUMERIC) INTO lines, tot FROM jsonb_array_elements(ln) l;
+        IF EXISTS(SELECT 1 FROM jsonb_array_elements(ln) l WHERE (l->>'urate')::NUMERIC<=0) THEN tot := NULL; END IF;
+        st := '{}'::jsonb;
+        out := wa_btn(ph, format(E'✅ *Order No %s book हो गया!*\n\n%s\n%s🕐 %s · %s\n\nधन्यवाद 🙏 माल जल्दी पहुँचेगा।', ord->>'no', lines,
+                 CASE WHEN tot > 0 THEN '💰 कुल: *' || wa_f(tot) || E'*\n' ELSE E'कुछ rate pending हैं; final total Owner बताएँगे।\n' END, ord->>'ts', wa_ist_date()),
+               '[{"id":"m_order","t":"🛒 और Order"},{"id":"m_home","t":"🏠 Menu"}]'::jsonb);
+        BEGIN INSERT INTO wa_log (phone, dir, body, msg) VALUES (ph, 'owner', jsonb_build_object('order', ord, 'name', nm), 'ORDER #' || (ord->>'no')); EXCEPTION WHEN OTHERS THEN NULL; END;
+      END IF;
     END IF;
 
   -- ---------- order flow ----------
@@ -412,7 +456,14 @@ BEGIN
       RETURN out::text;
     END IF;
     st := jsonb_build_object('step','item','lines', '[]'::jsonb);
-    out := wa_list(ph, '🛒 *नया Order*' || E'\nकौन सा item चाहिए?', '👇 Item चुनें', 'Items',
+    ptxt := '';
+    pnd := wa_pending_order(nm, cust->>'address');
+    IF pnd IS NOT NULL THEN
+      SELECT string_agg(format('• %s × %s', i->>'name', trim_scale(wa_num(i->>'qty'))), E'\n') INTO ptxt
+        FROM jsonb_array_elements(COALESCE(pnd->'order'->'items','[]')) i WHERE wa_num(i->>'qty')>0;
+      ptxt := format(E'\n\n⚠️ आपका *पुराना Order No %s* (%s) अभी deliver नहीं हुआ:\n%s\n✅ नया item उसी order में जुड़ जाएगा.', pnd->'order'->>'no', substr(pnd->>'key',8), COALESCE(ptxt,''));
+    END IF;
+    out := wa_list(ph, '🛒 *नया Order*' || ptxt || E'\n\nकौन सा item चाहिए?', '👇 Item चुनें', 'Items',
       '[{"id":"i_atta","t":"🌾 Atta","d":"23kg Gold · 18kg · 10kg · 5kg"},{"id":"i_sattu","t":"🥣 Sattu","d":"200g / 500g"},{"id":"i_besan","t":"🟡 Besan","d":"200g / 500g"},{"id":"i_chokar","t":"🐄 Chokar","d":"बोरा"}]'::jsonb);
   ELSIF m = 'i_atta' AND step='item' THEN
     st := st || '{"step":"size","item":"atta"}'::jsonb;
@@ -630,6 +681,32 @@ BEGIN
   arr := jsonb_set(arr,ARRAY[oi::text],ob);
   UPDATE sg_store SET value=jsonb_build_object('v',arr),updated_at=(extract(epoch from clock_timestamp())*1000)::bigint,synced_at=now() WHERE key='sg_wa_obj';
   RETURN ob;
+END $$;
+
+-- =====================================================================
+-- PAYMENT RECEIPT (Meta template satyam_payment_receipt) — queue + failed list
+-- dedupe_key UNIQUE: एक payment की receipt दो बार कभी नहीं जाती.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS wa_receipts (
+  id BIGSERIAL PRIMARY KEY, dedupe_key TEXT NOT NULL UNIQUE, source TEXT NOT NULL DEFAULT 'nb',
+  name TEXT NOT NULL, phone TEXT, amount NUMERIC NOT NULL DEFAULT 0, data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'pending', delivery TEXT, error TEXT, meta_id TEXT, tries INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS wa_receipts_status_idx ON wa_receipts (status, id DESC);
+CREATE INDEX IF NOT EXISTS wa_receipts_meta_idx ON wa_receipts (meta_id);
+CREATE INDEX IF NOT EXISTS wa_log_created_idx ON wa_log (created_at);
+
+-- Meta delivery status (n8n / webhook से) → failed हो तो app के Receipts button में दिखे
+CREATE OR REPLACE FUNCTION public.wa_receipt_status(p_meta TEXT, p_status TEXT, p_err TEXT) RETURNS INT
+LANGUAGE plpgsql SET search_path = public AS $$
+DECLARE n INT;
+BEGIN
+  IF p_status = 'failed' THEN
+    UPDATE wa_receipts SET status='failed', delivery='failed', error=left(COALESCE(NULLIF(p_err,''),'WhatsApp delivery failed'),500), updated_at=now() WHERE meta_id = p_meta;
+  ELSIF p_status IN ('delivered','read') THEN
+    UPDATE wa_receipts SET delivery=p_status, updated_at=now() WHERE meta_id = p_meta AND status='sent' AND COALESCE(delivery,'') <> 'read';
+  ELSE RETURN 0; END IF;
+  GET DIAGNOSTICS n = ROW_COUNT; RETURN n;
 END $$;
 
 CREATE INDEX IF NOT EXISTS wa_log_processed_idx ON wa_log ((body->>'id'))

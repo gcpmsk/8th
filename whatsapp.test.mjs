@@ -342,7 +342,7 @@ await test('WhatsApp tile on Home + 💬 WhatsApp (Objection) button in Order Bo
 });
 
 await test('order numbers do not truncate at 100 and missing rates remain pending',async()=>{
-  await fixture();await store('sg_ord_01-01-2026',[{no:'99',items:[]}]);
+  await fixture();await db.query("DELETE FROM sg_store WHERE key LIKE 'sg_ord_%'");await store('sg_ord_01-01-2026',[{no:'99',items:[]}]);
   await store('sg_rates',{master:{gold:100}});
   await send('m_order');await send('i_chokar');await send('2');
   assert.match(sends.at(-1).interactive.body.text,/Owner बताएँगे/);
@@ -352,6 +352,31 @@ await test('order numbers do not truncate at 100 and missing rates remain pendin
   const rows=(await db.query("SELECT value FROM sg_store WHERE key LIKE 'sg_ord_%'")).rows;
   const order=rows.flatMap(r=>r.value.v).find(o=>o.no==='100');
   assert.equal(order.items[0].rate,'');
+});
+await test('new WhatsApp order merges into customer\'s undelivered old order and tells the customer',async()=>{
+  await fixture();await db.query("DELETE FROM sg_store WHERE key LIKE 'sg_ord_%'");
+  await store('sg_rates',{master:{gold:100,chokar:50}});
+  await send('m_order');
+  assert.doesNotMatch(sends.at(-1).interactive.body.text,/पुराना Order/);
+  await send('i_chokar');await send('2');await send('ok_order');
+  assert.match(sends.at(-1).interactive.body.text,/Order No \d+ book हो गया/);
+  // second order, first one still undelivered -> warning + merge, no new serial
+  await send('m_order');
+  assert.match(sends.at(-1).interactive.body.text,/पुराना Order No/);
+  assert.match(sends.at(-1).interactive.body.text,/Chokar × 2/);
+  await send('i_chokar');await send('3');await send('ok_order');
+  assert.match(sends.at(-1).interactive.body.text,/में जुड़ गया/);
+  const orders=(await db.query("SELECT value FROM sg_store WHERE key LIKE 'sg_ord_%'")).rows.flatMap(r=>r.value.v);
+  assert.equal(orders.length,1);
+  assert.equal(orders[0].items.length,1);
+  assert.equal(Number(orders[0].items[0].qty),5);
+  // fully delivered old order -> next order is a fresh serial
+  orders[0].items.forEach(i=>i.qty=0);
+  const k=(await db.query("SELECT key FROM sg_store WHERE key LIKE 'sg_ord_%'")).rows[0].key;
+  await store(k,orders);
+  await send('m_order');await send('i_chokar');await send('1');await send('ok_order');
+  assert.match(sends.at(-1).interactive.body.text,/book हो गया/);
+  assert.equal((await db.query("SELECT value FROM sg_store WHERE key LIKE 'sg_ord_%'")).rows.flatMap(r=>r.value.v).length,2);
 });
 await test('unlinking customer after quotation blocks order confirmation',async()=>{
   await fixture();await send('m_order');await send('i_chokar');await send('1');
@@ -374,7 +399,7 @@ await test('four-line confirmation retains all items and cart total',async()=>{
 });
 await test('n8n import normalizes text and interactive messages and ignores statuses',async()=>{
   const workflow=JSON.parse(await readFile(new URL('./n8n-whatsapp.json',import.meta.url),'utf8'));
-  assert.equal(workflow.active,false);assert.equal(workflow.nodes.length,4);
+  assert.equal(workflow.active,false);assert.equal(workflow.nodes.length,6);
   const code=workflow.nodes.find(n=>n.type==='n8n-nodes-base.code').parameters.jsCode;
   const extract=new Function('$input',code);
   const output=extract({all:()=>[
@@ -385,7 +410,15 @@ await test('n8n import normalizes text and interactive messages and ignores stat
   assert.deepEqual(output.map(x=>x.json.input),['Hi','m_order','i_atta']);
   assert.ok(output.every(x=>x.json.messageId));
   const postgres=workflow.nodes.find(n=>n.type==='n8n-nodes-base.postgres');
-  assert.match(postgres.parameters.query,/wa_receive\(\$1::text, \$2::text, \$3::text\)/);
+  assert.match(postgres.parameters.query,/wa_receive\(\$1::text, \$2::text, \$3::text\)/);  // receipt delivery statuses go to a separate branch, never to the customer bot
+  const stNode=workflow.nodes.find(n=>n.name==='Status निकालो');
+  const st=new Function('$input',stNode.parameters.jsCode)({all:()=>[
+    {json:{entry:[{changes:[{value:{statuses:[{id:'wamid.1',status:'failed',errors:[{code:131026,message:'Message undeliverable'}]},{id:'wamid.2',status:'sent'},{id:'wamid.3',status:'read'}]}}]}]}},
+    {json:{messages:[msg('Hi')]}}]});
+  assert.deepEqual(st.map(x=>[x.json.metaId,x.json.status]),[['wamid.1','failed'],['wamid.3','read']]);
+  assert.match(st[0].json.error,/131026/);
+  assert.match(workflow.nodes.find(n=>n.name==='Receipt status (Postgres)').parameters.query,/wa_receipt_status/);
+  assert.ok(workflow.connections['WhatsApp Trigger'].main[0].some(x=>x.node==='Status निकालो'));
 });
 await test('documented packing SQL preserves other defaults on old databases',async()=>{
   const guide=await readFile(new URL('./README.md',import.meta.url),'utf8');

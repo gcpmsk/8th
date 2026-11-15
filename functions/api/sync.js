@@ -11,6 +11,7 @@
    ===================================================================== */
 
 import { Client } from 'pg';
+import { RECEIPT_DDL, queueReceipt, sendQueued } from '../_lib/receipt.js';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -81,7 +82,12 @@ export async function onRequestGet({ request, env }) {
 }
 
 /* ---------------------------- WRITE --------------------------- */
-export async function onRequestPost({ request, env }) {
+/* Notebook के जमा entry की rid ('j<ms>…') से बनने का समय — पुराने data पर receipt blast न हो */
+const RID_MAX_AGE = 3 * 864e5;
+const ridTime = rid => { const m = /^j(\d{12,})/.exec(String(rid || '')); return m ? Number(m[1]) : 0; };
+const N = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
+
+export async function onRequestPost({ request, env, waitUntil }) {
   let client;
   try {
     const body = await request.json();
@@ -90,9 +96,10 @@ export async function onRequestPost({ request, env }) {
 
     client = await connect(env);
     await client.query(DDL);
+    await client.query(RECEIPT_DDL);
     await client.query('BEGIN');
 
-    let saved = 0;
+    let saved = 0; const toSend = [];
     for (const it of items) {
       const key = String(it?.key || '');
       if (!key || !key.startsWith('sg_') || key.length > 300 || key === 'sg_wa_obj') continue;
@@ -102,7 +109,7 @@ export async function onRequestPost({ request, env }) {
         ? { __deleted: true }
         : { v: it.value };
 
-      await client.query(
+      const up = await client.query(
         `INSERT INTO sg_store (key, value, updated_at)
          VALUES ($1, $2::jsonb, $3)
          ON CONFLICT (key) DO UPDATE
@@ -113,10 +120,29 @@ export async function onRequestPost({ request, env }) {
         [key, JSON.stringify(wrapped), ts]
       );
       saved++;
+
+      /* Notebook में जमा (जमा खाते नाम) हुआ → WhatsApp receipt queue.
+         • सिर्फ़ rid वाली नयी entry (rid = एक entry की पहचान) — UNIQUE dedupe_key से एक entry की receipt एक ही बार
+         • Collection app की entry (fromColl) की receipt Collection खुद भेजता है — यहाँ नहीं (दोबारा न जाए)
+         • cut (कटी हुई) entry की नहीं */
+      if (up.rowCount && key.startsWith('sg_nb_') && Array.isArray(it.value?.jama)) {
+        for (const j of it.value.jama) {
+          const t = ridTime(j?.rid);
+          if (!t || Date.now() - t > RID_MAX_AGE || j.cut || j.fromColl || !j.name || N(j.amount) <= 0) continue;
+          const online = Math.min(N(j.online), N(j.amount));
+          const id = await queueReceipt(client, { key: 'nb:' + j.rid, source: 'nb', name: j.name, address: j.address,
+            cash: N(j.amount) - online, online, date: key.slice(6), time: j.ts || '', by: 'Notebook', at: t });
+          if (id) toSend.push(id);
+        }
+      }
     }
 
     await client.query('COMMIT');
-    return ok({ saved });
+    if (toSend.length) {   // response रोके बिना background में भेजो; fail हुआ तो app के 🧾 Receipts में दिखेगा
+      const job = sendQueued(env, () => connect(env), toSend);
+      if (typeof waitUntil === 'function') waitUntil(job); else await job;
+    }
+    return ok({ saved, receipts: toSend.length });
   } catch (e) {
     try { await client?.query('ROLLBACK'); } catch (_) {}
     return bad(e.message || e);

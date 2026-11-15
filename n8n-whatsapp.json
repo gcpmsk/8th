@@ -75,6 +75,39 @@
       "maxTries": 3,
       "waitBetweenTries": 2000,
       "notes": "Replace PHONE_NUMBER_ID, not the mobile number. Header Auth credential: Name Authorization, Value Bearer YOUR_META_TOKEN. Never put the token in code."
+    },
+    {
+      "id": "sg-wa-status",
+      "name": "Status निकालो",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        260
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meta delivery status -> receipt Failed / Delivered / Read. Customer messages yahan nahi aate.\nconst out = [];\nfor (const item of $input.all()) {\n  const root = item.json;\n  for (const env of (Array.isArray(root) ? root : [root])) {\n    const values = env.entry ? env.entry.flatMap(e => (e.changes || []).map(c => c.value)) : [env];\n    for (const v of values) for (const s of (v?.statuses || [])) {\n      if (!s.id || !['failed', 'delivered', 'read'].includes(s.status)) continue;\n      const e = (s.errors || [])[0];\n      out.push({ json: { metaId: s.id, status: s.status,\n        error: e ? `Meta ${e.code}: ${e.error_data?.details || e.message || e.title || ''}`.trim() : '' } });\n    }\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "sg-wa-rcpt-db",
+      "name": "Receipt status (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        500,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wa_receipt_status($1::text, $2::text, $3::text) AS updated;",
+        "options": {
+          "queryReplacement": "={{ [$json.metaId, $json.status, $json.error] }}",
+          "queryBatching": "independently"
+        }
+      },
+      "notes": "Same Postgres credential. Receipt delivery fail/delivered/read yahan se Postgres me jata hai; app ke WhatsApp -> Receipts me Failed dikhta hai."
     }
   ],
   "connections": {
@@ -83,6 +116,11 @@
         [
           {
             "node": "Input निकालो",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Status निकालो",
             "type": "main",
             "index": 0
           }
@@ -105,6 +143,17 @@
         [
           {
             "node": "WhatsApp JSON भेजो",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status निकालो": {
+      "main": [
+        [
+          {
+            "node": "Receipt status (Postgres)",
             "type": "main",
             "index": 0
           }

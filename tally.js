@@ -513,8 +513,9 @@ function tvPayEntry(key){
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-ps">✓ Paid</button></div>`,
     onOpen(bk){
       const a=bk.querySelector('#tv-pa'); a.focus();
-      bk.querySelector('#tv-ps').addEventListener('click',()=>{
-        const amt=tvN(a.value); if(amt<=0){ toast('Amount भरें'); return; }
+      bk.querySelector('#tv-ps').addEventListener('click',(ev)=>{
+        if(ev.currentTarget.disabled) return; ev.currentTarget.disabled=true;   /* double-click guard */
+        const amt=tvN(a.value); if(amt<=0){ ev.currentTarget.disabled=false; toast('Amount भरें'); return; }
         const note=bk.querySelector('#tv-pn').value.trim();
         if(kind==='deb'){
           const md=bk.querySelector('#tv-pm').value;
@@ -743,6 +744,7 @@ function tvPushNB(section,rec){
   let db=tvJSON(k,null) || {opening:null,rokad:[],jama:[],maal:[],nagad:[],kharch:[],inhome:[],outhome:[],receipts:[],totals:null};
   if(!Array.isArray(db[section])) db[section]=[];
   rec.ts=rec.ts||tvNowTS(); rec.cut=false; rec.fromTally=true;
+  if(section==='jama' && !rec.rid) rec.rid='j'+Date.now()+Math.random().toString(36).slice(2,6);   /* WhatsApp receipt dedupe */
   db[section].push(rec);
   tvSet(k,db);
   try{ if(typeof DB!=='undefined' && typeof CUR_DATE!=='undefined' && CUR_DATE===d){ DB[section].push(rec); if(typeof renderAll==='function') renderAll(); } }catch(e){}
