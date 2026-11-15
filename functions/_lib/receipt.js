@@ -11,6 +11,8 @@
      WA_RECEIPT_LANG      default hi
      WA_RECEIPT_PARAMS    template {{1}},{{2}}... में क्या जाए, default: name,amount,date,mode
         चुन सकते हैं: name, amount, amount_rs, date, time, mode, rno, address, cash, online, by
+        template में कोई {{variable}} नहीं है तो: none
+     WA_RECEIPT_HEADER_IMAGE  (optional) अगर Meta template में Header = Image है तो उसका public https JPG/PNG link
    ===================================================================== */
 const pad = n => String(n).padStart(2, '0');
 const istDate = d => new Date(d.getTime() + 330 * 60000);
@@ -92,9 +94,14 @@ export async function deliverReceipt(env, c, id, force = false) {
     const phone = (await lookupPhone(c, row.name)) || normPhone(d.phone);
     if (!phone) return await fail('Customer का WhatsApp number नहीं मिला — Tally में mobile भरें, फिर Retry');
     d.rno = d.rno || makeRno(row.created_at, row.id);
-    const fields = String(env.WA_RECEIPT_PARAMS ?? 'name,amount,date,mode').split(',').map(s => s.trim()).filter(Boolean);
+    const rawParams = String(env.WA_RECEIPT_PARAMS ?? 'name,amount,date,mode').trim();
+    const fields = /^(none|no|nil|-|0)$/i.test(rawParams) ? [] : rawParams.split(',').map(s => s.trim()).filter(Boolean);
+    const hdrImg = String(env.WA_RECEIPT_HEADER_IMAGE || '').trim();
     const template = { name: env.WA_RECEIPT_TEMPLATE || 'satyam_payment_receipt', language: { code: env.WA_RECEIPT_LANG || 'hi' } };
-    if (fields.length) template.components = [{ type: 'body', parameters: fields.map(f => ({ type: 'text', text: clean(d[f]) })) }];
+    const components = [];
+    if (hdrImg) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: hdrImg } }] });
+    if (fields.length) components.push({ type: 'body', parameters: fields.map(f => ({ type: 'text', text: clean(d[f]) })) });
+    if (components.length) template.components = components;
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
     let r, out;
     try {
@@ -106,7 +113,8 @@ export async function deliverReceipt(env, c, id, force = false) {
     const mid = out?.messages?.[0]?.id;
     if (!r.ok || out?.error || !mid) {
       const code = out?.error?.code || r.status;
-      const hint = code === 132000 || code === 132012 ? ' → Template के {{1}},{{2}} की गिनती/क्रम से WA_RECEIPT_PARAMS मिलाएँ'
+      const hint = code === 132000 || code === 132012
+        ? ` → Template के {{1}},{{2}} की गिनती/क्रम से WA_RECEIPT_PARAMS मिलाएँ (हमने भेजा: body ${fields.length} variable, header ${hdrImg ? 'image' : 'none'}; template में Header=Image हो तो WA_RECEIPT_HEADER_IMAGE भरें)`
         : code === 132001 ? ' → WA_RECEIPT_TEMPLATE नाम / WA_RECEIPT_LANG (hi / hi_IN) जाँचें'
         : code === 190 ? ' → WA_TOKEN expire — नया permanent token डालें' : '';
       return await fail(`Meta ${code}: ${out?.error?.error_data?.details || out?.error?.message || 'No message ID returned'}${hint}`);

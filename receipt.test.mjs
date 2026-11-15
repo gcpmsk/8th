@@ -107,6 +107,18 @@ await test('Meta error (param count) Failed me hint ke saath; retry_all', async 
   assert.equal(all.body.sent, 1); assert.equal(sends.length, n + 1);
   assert.equal((await own('GET', '?view=receipts')).body.counts.failed, 0);
 });
+await test('WA_RECEIPT_PARAMS=none → body me variable nahi; header image link optional', async () => {
+  const n = sends.length;
+  await push('15-11-2026', [{ name: 'Rahul Kumar', amount: 11, rid: rid('n'), ts: '12:05 PM' }], { ...env, WA_RECEIPT_PARAMS: 'none' });
+  assert.equal(sends.length, n + 1);
+  assert.equal(sends.at(-1).template.components, undefined);
+  await push('15-11-2026', [{ name: 'Rahul Kumar', amount: 12, rid: rid('m'), ts: '12:06 PM' }], { ...env, WA_RECEIPT_PARAMS: 'none', WA_RECEIPT_HEADER_IMAGE: 'https://x.test/h.png' });
+  const comps = JSON.parse(JSON.stringify(sends.at(-1).template.components));
+  assert.equal(comps.length, 1); assert.equal(comps[0].type, 'header'); assert.equal(comps[0].parameters[0].image.link, 'https://x.test/h.png');
+  await push('15-11-2026', [{ name: 'Rahul Kumar', amount: 13, rid: rid('o'), ts: '12:07 PM' }], { ...env, WA_RECEIPT_HEADER_IMAGE: 'https://x.test/h.png' });
+  const c2 = JSON.parse(JSON.stringify(sends.at(-1).template.components));
+  assert.deepEqual(c2.map(c => c.type), ['header', 'body']);
+});
 await test('Meta delivery status failed → receipt Failed list me; delivered/read track hota hai', async () => {
   const r = (await rows()).at(-1);
   await db.query("SELECT wa_receipt_status($1,'delivered','')", [r.meta_id]);

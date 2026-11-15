@@ -5,7 +5,7 @@ Dono apps (Notebook = `gcpmsk/8th`, Collection = `gcpmsk/Collection-satyam`) **s
 ## Kya-kya ho gaya
 | Feature | Kaise kaam karta hai |
 |---|---|
-| Auto receipt (Notebook) | Notebook me **जमा खाते नाम** save hote hi `/api/sync` receipt queue karta hai aur Meta template `satyam_payment_receipt` bhej deta hai |
+| Auto receipt (Notebook) | Notebook me **जमा खाते नाम** save hote hi `/api/sync` receipt queue karta hai aur Meta template (`WA_RECEIPT_TEMPLATE`) bhej deta hai |
 | Auto receipt (Collection) | Collection me **Save & Receipt** par payment ke saath hi receipt queue + send |
 | Sirf ek baar | Har payment ki `dedupe_key` UNIQUE hai (`nb:<rid>` / `coll:<id>`). Double click, 2 device, network retry par bhi 1 hi receipt |
 | Collection double payment | Har Save ke saath `req_id` jaata hai. Same `req_id` dobara aaye to server purani payment lauta deta hai (record 2 baar nahi banta). Purane app ke liye: same customer+amount+mode 10 sec me = duplicate |
@@ -20,11 +20,37 @@ Receipt kab **nahi** jaati: Collection se aayi entry Notebook se dobara nahi (Co
 ## STEP 1 — Postgres (Adminer)
 `whatsapp-schema.sql` poora paste karke Execute (dobara chalana safe hai). Isse naya banta hai: `wa_receipts`, `wa_pending_order()`, `wa_receipt_status()` aur bot ka old-order merge.
 
-## STEP 2 — Meta (WhatsApp Manager)
-1. Template `satyam_payment_receipt` **Active** hai — sahi hai.
-2. Template kholo aur dekho usme `{{1}}`, `{{2}}`… kitne hain aur kis kis cheez ke liye. Sabse zaroori step.
-3. Webhook: App → WhatsApp → Configuration → field **messages** subscribed rahe (delivery "failed/delivered/read" status isi field me aate hain).
-4. Permanent token (System User) ka `whatsapp_business_messaging` permission ho.
+## STEP 2 — Meta (WhatsApp Manager)  ⚠️ Error 132000 ka ilaaj
+Error `number of localizable_params (1) does not match expected (0)` ka matlab: Meta template ke **body me koi `{{1}}` variable nahi hai**, par app body me variable bhej raha tha. Upar se template me **Header = Image** hai, jiske liye har message me image dena padta (app nahi deta) — isliye purana template kabhi nahi chalega.
+
+**Sahi tareeka: naya TEXT template banao** (purana edit mat karo — edit par dobara review aur limits lagti hain).
+WhatsApp Manager → Message templates → **Create template**
+| Field | Value |
+|---|---|
+| Category | **Utility** |
+| Name | `satyam_payment_receipt_v2` |
+| Language | **Hindi** |
+| Header | **None** (Media sample bhi None — koi Image nahi) |
+| Type of variable | **Number** |
+| Footer | `SATYAM GOLD` |
+
+**Body (ye paste karo):**
+```
+नमस्ते {{1}} जी,
+
+आपका ₹{{2}} का भुगतान सफलतापूर्वक प्राप्त हो गया है।
+
+दिनांक: {{3}}
+भुगतान का तरीका: {{4}}
+
+Satyam Gold पर विश्वास करने के लिए धन्यवाद।
+```
+**Variable samples (Add sample me ye bharo):**
+`{{1}}` = Gupta Satyam · `{{2}}` = 100 · `{{3}}` = 14-11-2026 · `{{4}}` = Cash
+
+Submit karo; Active hote hi (aam taur par kuch minute) Step 3 ke variables badlo.
+
+Dhyan: Meta ke upar "Missing valid payment method" warning me **Add payment method** karo — warna customer ko business-initiated (template) message nahi ja sakta.
 
 ## STEP 3 — Cloudflare Pages (DONO projects: Notebook aur Collection)
 Settings → Variables and Secrets (Production):
@@ -34,12 +60,13 @@ Settings → Variables and Secrets (Production):
 | `WA_TOKEN` | Meta permanent token |
 | `WA_PHONE_ID` | Phone number ID (mobile number nahi) |
 | `WA_ADMIN_TOKEN` | **sirf Notebook project** — jo objection ke liye pehle se hai |
-| `WA_RECEIPT_TEMPLATE` | `satyam_payment_receipt` (default) |
+| `WA_RECEIPT_TEMPLATE` | `satyam_payment_receipt_v2` (naya template ka naam) |
 | `WA_RECEIPT_LANG` | `hi` (default; Meta me language "Hindi" ho to `hi`) |
-| `WA_RECEIPT_PARAMS` | template ke `{{1}},{{2}}…` ka order, comma se. Default `name,amount,date,mode` |
+| `WA_RECEIPT_PARAMS` | `name,amount,date,mode` (= `{{1}}` naam, `{{2}}` rakam, `{{3}}` tareekh, `{{4}}` mode). Pehle jo value thi use isi se badal do |
+| `WA_RECEIPT_HEADER_IMAGE` | **khali chhodo / delete karo** (sirf tab jab template me Header=Image ho; har customer ko same static image jayegi) |
 
 `WA_RECEIPT_PARAMS` me ye words chal sakte hain: `name, amount, amount_rs, date, time, mode, rno, address, cash, online, by`.
-Example: template me 2 variable hain (naam, rakam) → `name,amount`. Variable ek bhi nahi → khali value (`WA_RECEIPT_PARAMS=`).
+Example: template me 2 variable hain (naam, rakam) → `name,amount`. Template me variable ek bhi nahi → `WA_RECEIPT_PARAMS=none`.
 Galat ho to receipt **Failed** me aayegi aur likha hoga "Template ke {{1}},{{2}} ki ginti/kram se WA_RECEIPT_PARAMS milayein" — value theek karke Retry dabao. Variable badalne par Pages ko **Redeploy** karo.
 
 Dono repos ka code push ke baad Pages khud deploy kar deta hai (GitHub connected hai to).
