@@ -98,7 +98,7 @@ function sbSaleHTML(db,live){
 ========================================================= */
 function sbJamaHTML(db,live){
   const rows=(db.jama||[]).filter(r=>!r.cut).map(r=>
-    `<div class="sb-line ${r.online>0?'red':'blue'}"><span class="sb-amt">${sbF(r.amount)}</span><span class="sb-txt">${esc(r.name)}${r.address?` (${esc(r.address)})`:''}${r.online>0?' <b>A/C</b>':''}</span></div>`).join('');
+    `<div class="sb-line ${r.online>0?'red':'blue'}"><span class="sb-amt">${sbF(r.amount)}</span><span class="sb-txt">${r.fromColl?`<span class="coll-nm">${esc(r.name)}</span>`:esc(r.name)}${r.address?` (${esc(r.address)})`:''}${r.online>0?' <b>A/C</b>':''}</span></div>`).join('');
   const man=sbManHTML('jama');
   return (rows+man||`<div class="sb-empty">— खाली —</div>`) + (live?`<div class="add-strip" data-sbadd="jama">+ नयी जमा entry</div>`:'');
 }

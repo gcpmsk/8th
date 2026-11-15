@@ -923,7 +923,7 @@ function buildRokad(db,live){
 function buildJama(db,live){
   return db.jama.map((r,i)=>
     `<div class="hw-entry ${r.cut?'cut':''} ${r.edited?'edited':''} ${r.online>0?'is-ac':''}" data-sec="jama" data-i="${i}">
-      <span class="amt">${fmt(r.amount)}</span>${esc(r.name)}${r.address?` <small>(${esc(r.address)})</small>`:''}${r.online>0?` <span class="ac-mark">A/C</span>`:''}
+      <span class="amt">${fmt(r.amount)}</span>${r.fromColl?`<span class="coll-nm" title="Collection App: ${esc(r.collBy||'')}">${esc(r.name)}</span>`:esc(r.name)}${r.address?` <small>(${esc(r.address)})</small>`:''}${r.online>0?` <span class="ac-mark">A/C</span>`:''}
       <span class="ts">${r.ts}</span>${editTag(r)}</div>`
   ).join('') + (live?`<div class="add-strip" data-add="jama">+ नयी जमा entry</div>`:'');
 }
