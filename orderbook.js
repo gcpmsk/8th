@@ -272,13 +272,13 @@ function nameBlockHTML(o){
 function isWhatsAppOrder(o){ return !!o && (o.wa===true || o.src==='wa' || /\(WA\)/.test(o.tvEts||'')); }
 function isCollOrder(o){ return !!o && (o.src==='coll' || !!o.coll); }
 function waOrderBadge(o){
-  if(isCollOrder(o)) return `<span class="ob-tag coll-source" title="Collection App: ${esc(o.collBy||'')}">📒 ${esc(o.coll||'COLL')}</span>`;
+  if(isCollOrder(o)) return '';   /* Collection order: अलग tag नहीं — पूरी row Dark Orange (.coll-order) */
   return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':''; }
 function orderCardHTML(o,isBack){
   const a=areaOf(o.address);
   const part=!!(o.deliv&&o.deliv.length);
   const gs=groupItems(o);
-  return `<div class="ob-o${isWhatsAppOrder(o)?' wa-order':''}${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
+  return `<div class="ob-o${isWhatsAppOrder(o)?' wa-order':''}${isCollOrder(o)?' coll-order':''}${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl">${esc(String(o.no))}</span>
       ${nameBlockHTML(o)}${waOrderBadge(o)}
@@ -323,7 +323,7 @@ function compleatCardHTML(c){
   const a=areaOf(c.address||(o&&o.address));
   const left=o? ordRemain(o):[];
   const pseudo={name:c.name,nameHi:c.nameHi,address:c.address,addressHi:c.addressHi};
-  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}${c.cancelled?' cut':''}"${o?` data-od="${esc(o.date)}" data-oi="${esc(o.id)}"`:''}>
+  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}${isCollOrder(o)?' coll-order':''}${c.cancelled?' cut':''}"${o?` data-od="${esc(o.date)}" data-oi="${esc(o.id)}"`:''}>
     <div class="ob-o-h">
       <span class="ob-sl green">${esc(String(o?o.no:(c.rno||'—')))}</span>
       ${nameBlockHTML(pseudo)}${waOrderBadge(o)}
@@ -344,7 +344,7 @@ function compleatCardHTML(c){
 function delivCardHTML(dv){
   const o=dv.order, a=areaOf(o.address);
   const left=ordRemain(o);
-  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
+  return `<div class="ob-o done${isWhatsAppOrder(o)?' wa-order':''}${isCollOrder(o)?' coll-order':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl green">${esc(String(o.no))}</span>
       ${nameBlockHTML(o)}${waOrderBadge(o)}
