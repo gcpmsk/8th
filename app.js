@@ -392,10 +392,13 @@ function openJama(editIdx=null){
       wireSeg(bk);
       sgSuggest(bk.querySelector('#jm-name'), bk.querySelector('#jm-addr'));
       bk.querySelector('#jm-save').addEventListener('click',()=>{
+        const sv=bk.querySelector('#jm-save'); if(sv.disabled) return;   /* double-click guard */
         const name=bk.querySelector('#jm-name').value.trim(), amt=parseFloat(bk.querySelector('#jm-amt').value)||0;
         if(!name||amt<=0){ toast('नाम और Amount भरें'); return; }
+        sv.disabled=true;
         const online = segVal(bk)==='online' ? amt : 0;
-        const rec={name,address:bk.querySelector('#jm-addr').value.trim(),amount:amt,online,ts:e.ts||nowTS(),cut:e.cut||false,edited:e.edited,ets:e.ets,edate:e.edate};
+        const rec={name,address:bk.querySelector('#jm-addr').value.trim(),amount:amt,online,ts:e.ts||nowTS(),cut:e.cut||false,edited:e.edited,ets:e.ets,edate:e.edate,
+          rid:editIdx!==null?e.rid:('j'+Date.now()+Math.random().toString(36).slice(2,6))}; /* rid = इस जमा की पहचान → WhatsApp receipt एक ही बार */
         if(editIdx!==null){ stampEdit(rec); DB.jama[editIdx]=rec; } else { DB.jama.push(rec); logChange({sec:'जमा नाम खाते',what:'नयी entry',name:rec.name,neu:rec.amount,note:rec.address||''}); }
         save(); closePopup(); renderAll();
       });
