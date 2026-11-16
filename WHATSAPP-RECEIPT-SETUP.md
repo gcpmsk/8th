@@ -17,6 +17,24 @@ Dono apps (Notebook = `gcpmsk/8th`, Collection = `gcpmsk/Collection-satyam`) **s
 
 Receipt kab **nahi** jaati: Collection se aayi entry Notebook se dobara nahi (Collection khud bhejta hai) · cut entry · 3 din se purani entry · bina mobile number wale customer (Failed me dikhegi).
 
+## ⭐ सबसे आसान तरीका — सादा TEXT receipt (न image, न template, न Meta approval)
+
+App अब receipt **सादे WhatsApp text** में भेज सकता है। Meta की "24 घंटे window" के अंदर (customer ने पिछले 23 घंटे में bot को कोई भी message भेजा हो) text receipt सीधे जाती है। Window बंद हो तो अपने आप approved **template** पर चली जाती है।
+
+| Variable (Cloudflare Pages, दोनों projects) | Value |
+|---|---|
+| `WA_RECEIPT_MODE` | `auto` (default) = window खुली → text, बंद → template · `text` = सिर्फ़ text · `template` = सिर्फ़ template |
+| `WA_RECEIPT_TEXT` | (optional) अपना मज़मून. `{name} {amount} {date} {time} {mode} {rno} {address}` चलते हैं, नई line के लिए `\n` |
+| `WA_RECEIPT_TEMPLATE` | `satyam_payment_receipt_v2` (जो text-only template review में है, Active होते ही) |
+| `WA_RECEIPT_PARAMS` | `name,amount,date,mode` (v2 template के {{1}}..{{4}}) |
+| `WA_RECEIPT_HEADER_IMAGE` | **खाली** — सिर्फ़ तब भरें जब template में Header=Image हो |
+
+Receipt **Sent** होने पर 🧾 Receipts list में `📝 text` या `📄 template` लिखा आता है, और 💬 Chatting में पूरा receipt text दिखता है।
+
+### "Sent" दिख रहा है पर WhatsApp पर नहीं आया — क्यों?
+App का **Sent** = "Meta ने message ले लिया". असली delivery बाद में पता चलती है। पुराना template `satyam_payment_receipt` में **Header = Image** है (app image नहीं भेजता) और Meta पर **"Missing valid payment method"** है — ऐसे template message Meta बाद में चुपचाप reject कर देता है (error 131042 / 132012). इसे पकड़ने के लिए **STEP 4 (n8n status node)** ज़रूर जोड़ें — तब ऐसी receipt app में ❌ Failed + असली कारण के साथ दिखेगी।
+`Meta 190: Authentication Error` = `WA_TOKEN` expire → Meta Business Settings → System users → नया **permanent token** बनाकर Cloudflare में `WA_TOKEN` बदलें, फिर Pages Redeploy और 🧾 Receipts में **सारी Failed Retry**।
+
 ## STEP 1 — Postgres (Adminer)
 `whatsapp-schema.sql` poora paste karke Execute (dobara chalana safe hai). Isse naya banta hai: `wa_receipts`, `wa_pending_order()`, `wa_receipt_status()` aur bot ka old-order merge.
 
@@ -71,11 +89,17 @@ Galat ho to receipt **Failed** me aayegi aur likha hoga "Template ke {{1}},{{2}}
 
 Dono repos ka code push ke baad Pages khud deploy kar deta hai (GitHub connected hai to).
 
-## STEP 4 — n8n
-Bot ka purana workflow waisa hi chalega. Receipt ka *delivery status* (Meta ne baad me fail kiya) pakadne ke liye 2 node jode gaye hain:
-- **Easy**: n8n → Workflows → Import from File → `n8n-whatsapp.json`, apna Postgres + WhatsApp credential select karo, `REPLACE_PHONE_NUMBER_ID` badlo, purana workflow unpublish karke naya Publish.
-- **Ya manual**: purane workflow me `WhatsApp Trigger` se ek naya Code node (`Status निकालो`, JSON me jsCode hai) → Postgres node `SELECT public.wa_receipt_status($1::text,$2::text,$3::text)` with query replacement `={{ [$json.metaId, $json.status, $json.error] }}`.
-Ye step na karo to bhi receipt jaati hai; bas "Meta ne baad me reject kiya" wali receipts Failed list me nahi aayengi.
+## STEP 4 — n8n (delivery status पकड़ने के लिए — 2 node)
+Bot का पुराना workflow जैसा है वैसा चलेगा। बस ये 2 node जोड़ें ताकि Meta का "failed / delivered / read" app तक पहुँचे:
+
+1. File download करें (raw link, Save as `.json`):
+   `https://raw.githubusercontent.com/gcpmsk/8th/main/n8n-receipt-status-addon.json`
+2. फ़ाइल खोलकर **सारा text copy** करें → n8n में अपना workflow खोलें → canvas पर क्लिक करके **Ctrl+V** (tablet: long-press → Paste). 2 node बन जाएँगे: `Status निकालो` → `Receipt status (Postgres)`.
+3. **`WhatsApp Trigger` के output dot से `Status निकालो` तक एक line खींचें** (Trigger से अब 2 line निकलेंगी: एक `Input निकालो` को, एक `Status निकालो` को).
+4. `Receipt status (Postgres)` node खोलकर वही Postgres credential चुनें जो `Bot का जवाब (Postgres)` में है।
+5. WhatsApp Trigger में *Trigger On = Messages* रखें (status भी इसी में आते हैं). **Publish** दबाएँ।
+
+पूरा workflow एक साथ चाहिए तो `n8n-whatsapp.json` (Import from File) — उसमें ये दोनों node पहले से जुड़े हैं।
 
 ## STEP 5 — Test (5 minute)
 1. Notebook me kisi customer ka mobile Tally me bharo → जमा entry save karo → WhatsApp par receipt aani chahiye.
