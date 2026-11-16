@@ -13,6 +13,11 @@
         चुन सकते हैं: name, amount, amount_rs, date, time, mode, rno, address, cash, online, by
         template में कोई {{variable}} नहीं है तो: none
      WA_RECEIPT_HEADER_IMAGE  (optional) अगर Meta template में Header = Image है तो उसका public https JPG/PNG link
+     WA_RECEIPT_MODE      auto (default) | template | text
+        auto     : customer ने पिछले 23 घंटे में bot को message किया है → सादा TEXT receipt (न template, न image, न Meta approval);
+                   window बंद हो (या text fail हो) → approved template
+        template : हमेशा template      text : हमेशा सादा text (सिर्फ़ 24 घंटे window में चलता है)
+     WA_RECEIPT_TEXT      (optional) text receipt का अपना मज़मून. {name} {amount} {date} {mode} {rno} {time} {address} चलते हैं
    ===================================================================== */
 const pad = n => String(n).padStart(2, '0');
 const istDate = d => new Date(d.getTime() + 330 * 60000);
@@ -77,6 +82,19 @@ export async function queueReceipt(c, r) {
   } catch (e) { await c.query('ROLLBACK TO SAVEPOINT wa_rq'); return null; }
 }
 
+const DEFAULT_TEXT = `🧾 *भुगतान रसीद — SATYAM GOLD*
+
+नमस्ते {name} जी,
+आपका ₹{amount} का भुगतान सफलतापूर्वक प्राप्त हो गया है।
+
+दिनांक: {date}
+भुगतान का तरीका: {mode}
+रसीद संख्या: {rno}
+
+Satyam Gold पर विश्वास करने के लिए धन्यवाद।`;
+export function receiptText(env, d) {
+  return String(env.WA_RECEIPT_TEXT || DEFAULT_TEXT).replace(/\\n/g, '\n').replace(/\{(\w+)\}/g, (_, k) => clean(d[k]));
+}
 const clean = v => String(v ?? '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim().slice(0, 100) || '-';
 
 export async function deliverReceipt(env, c, id, force = false) {
@@ -102,29 +120,46 @@ export async function deliverReceipt(env, c, id, force = false) {
     if (hdrImg) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: hdrImg } }] });
     if (fields.length) components.push({ type: 'body', parameters: fields.map(f => ({ type: 'text', text: clean(d[f]) })) });
     if (components.length) template.components = components;
-    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
-    let r, out;
-    try {
-      r = await fetch(`https://graph.facebook.com/${env.WA_GRAPH_VERSION || 'v23.0'}/${env.WA_PHONE_ID}/messages`, {
-        method: 'POST', signal: ctl.signal, headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'template', template }) });
-      out = await r.json().catch(() => ({}));
-    } finally { clearTimeout(tm); }
-    const mid = out?.messages?.[0]?.id;
-    if (!r.ok || out?.error || !mid) {
-      const code = out?.error?.code || r.status;
+    const send = async payload => {      // Meta को एक message भेजो → {ok, mid, code, msg}
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
+      try {
+        const r = await fetch(`https://graph.facebook.com/${env.WA_GRAPH_VERSION || 'v23.0'}/${env.WA_PHONE_ID}/messages`, {
+          method: 'POST', signal: ctl.signal, headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, ...payload }) });
+        const out = await r.json().catch(() => ({}));
+        const mid = out?.messages?.[0]?.id;
+        if (!r.ok || out?.error || !mid) return { ok: false, code: out?.error?.code || r.status, msg: out?.error?.error_data?.details || out?.error?.message || 'No message ID returned' };
+        return { ok: true, mid };
+      } finally { clearTimeout(tm); }
+    };
+    const mode = String(env.WA_RECEIPT_MODE || 'auto').trim().toLowerCase();
+    let res = null, via = 'template', textErr = '';
+    if (mode === 'auto' || mode === 'text') {
+      let open = false;
+      { try { open = !!(await c.query("SELECT 1 FROM wa_log WHERE phone=$1 AND dir='in' AND created_at > now() - interval '23 hours' LIMIT 1", [phone])).rows[0]; } catch (_) {} }
+      if (open) {
+        res = await send({ type: 'text', text: { preview_url: false, body: receiptText(env, d) } });
+        if (res.ok) via = 'text'; else { textErr = `Meta ${res.code}: ${res.msg}`; if (mode !== 'text') res = null; }
+      } else if (mode === 'text') return await fail('Customer ने 24 घंटे में WhatsApp पर message नहीं किया — सादा text नहीं जा सकता (WA_RECEIPT_MODE=auto रखें ताकि template जाए)');
+    }
+    if (!res || (!res.ok && mode !== 'text')) res = await send({ type: 'template', template });
+    const mid = res.ok ? res.mid : null;
+    if (!res.ok) {
+      const code = res.code;
       const hint = code === 132000 || code === 132012
         ? ` → Template के {{1}},{{2}} की गिनती/क्रम से WA_RECEIPT_PARAMS मिलाएँ (हमने भेजा: body ${fields.length} variable, header ${hdrImg ? 'image' : 'none'}; template में Header=Image हो तो WA_RECEIPT_HEADER_IMAGE भरें)`
         : code === 132001 ? ' → WA_RECEIPT_TEMPLATE नाम / WA_RECEIPT_LANG (hi / hi_IN) जाँचें'
+        : code === 131042 ? ' → Meta में Payment method जोड़ें (WhatsApp Manager → Add payment method)'
+        : code === 131047 ? ' → Customer की 24 घंटे की window बंद है, template चाहिए'
         : code === 190 ? ' → WA_TOKEN expire — नया permanent token डालें' : '';
-      return await fail(`Meta ${code}: ${out?.error?.error_data?.details || out?.error?.message || 'No message ID returned'}${hint}`);
+      return await fail(`Meta ${code}: ${res.msg}${hint}${textErr ? ' | text: ' + textErr : ''}`);
     }
-    await c.query("UPDATE wa_receipts SET status='sent', delivery='accepted', meta_id=$2, phone=$3, error=NULL, updated_at=now() WHERE id=$1", [id, mid, phone]);
+    await c.query("UPDATE wa_receipts SET status='sent', delivery='accepted', meta_id=$2, phone=$3, error=NULL, data=data || jsonb_build_object('via',$4::text), updated_at=now() WHERE id=$1", [id, mid, phone, via]);
     try { // Chatting history में भी दिखे
       await c.query("INSERT INTO wa_log (phone, dir, body, msg) VALUES ($1,'out',$2::jsonb,'RECEIPT')",
-        [phone, JSON.stringify({ receipt: true, text: `🧾 Payment Receipt भेजी — ${d.name} · ₹${d.amount} · ${d.mode} · ${d.date}` })]);
+        [phone, JSON.stringify({ receipt: true, via, text: via === 'text' ? receiptText(env, d) : `🧾 Payment Receipt (template) भेजी — ${d.name} · ₹${d.amount} · ${d.mode} · ${d.date}` })]);
     } catch (_) {}
-    return { id, ok: true, phone };
+    return { id, ok: true, phone, via };
   } catch (e) {
     try { return await fail(e.name === 'AbortError' ? 'Meta timeout — Retry करें' : (e.message || e)); } catch (_) { return { id, ok: false, error: String(e.message || e) }; }
   }

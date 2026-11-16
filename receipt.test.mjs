@@ -21,7 +21,8 @@ let sends = [], metaMode = 'ok';
 const context = vm.createContext({ Response, Request, URL, console, crypto: webcrypto, TextEncoder, AbortController, setTimeout, clearTimeout,
   fetch: async (url, init) => {
     const payload = JSON.parse(init.body); sends.push(payload);
-    if (metaMode === 'ok') return new Response(JSON.stringify({ messages: [{ id: 'wamid.' + sends.length }] }), { status: 200 });
+    if (metaMode === 'textfail' && payload.type === 'text') return new Response(JSON.stringify({ error: { code: 131047, message: 'Re-engagement message' } }), { status: 400 });
+    if (metaMode === 'ok' || metaMode === 'textfail') return new Response(JSON.stringify({ messages: [{ id: 'wamid.' + sends.length }] }), { status: 200 });
     if (metaMode === 'params') return new Response(JSON.stringify({ error: { code: 132000, message: 'Number of parameters does not match' } }), { status: 400 });
     return new Response(JSON.stringify({ error: { code: 190, message: 'expired' } }), { status: 401 });
   } });
@@ -118,6 +119,41 @@ await test('WA_RECEIPT_PARAMS=none → body me variable nahi; header image link 
   await push('15-11-2026', [{ name: 'Rahul Kumar', amount: 13, rid: rid('o'), ts: '12:07 PM' }], { ...env, WA_RECEIPT_HEADER_IMAGE: 'https://x.test/h.png' });
   const c2 = JSON.parse(JSON.stringify(sends.at(-1).template.components));
   assert.deepEqual(c2.map(c => c.type), ['header', 'body']);
+});
+await test('Customer ki 24 ghante ki window khuli ho → sada TEXT receipt (template/image nahi); band ho → template', async () => {
+  await store('sg_mobiles', { 'RAHUL KUMAR': '98765 43210', 'TEXT PARTY': '90000 11111' });
+  await db.exec("DELETE FROM wa_log");
+  let n = sends.length;
+  await push('15-11-2026', [{ name: 'Text Party', amount: 21, rid: rid('t1'), ts: '01:00 PM' }]);   // window band → template
+  assert.equal(sends.length, n + 1); assert.equal(sends.at(-1).type, 'template');
+  await db.query("INSERT INTO wa_log(phone,dir,body,msg) VALUES ('919000011111','in','{\"text\":\"Hi\"}'::jsonb,'Hi')");
+  n = sends.length;
+  await push('15-11-2026', [{ name: 'Text Party', amount: 22, rid: rid('t2'), ts: '01:01 PM' }]);   // window khuli → text
+  assert.equal(sends.length, n + 1);
+  const m = JSON.parse(JSON.stringify(sends.at(-1)));
+  assert.equal(m.type, 'text'); assert.equal(m.template, undefined); assert.equal(m.to, '919000011111');
+  assert.match(m.text.body, /Text Party/); assert.match(m.text.body, /₹22/); assert.match(m.text.body, /15-11-2026/);
+  const r = (await rows()).at(-1); assert.equal(r.status, 'sent'); assert.equal(r.data.via, 'text');
+  const lg = (await db.query("SELECT body FROM wa_log WHERE dir='out' ORDER BY id DESC LIMIT 1")).rows[0].body;
+  assert.equal(lg.receipt, true); assert.match(lg.text, /₹22/);     // Chatting me poora receipt dikhe
+});
+await test('text Meta ne reject kare to template par fallback; WA_RECEIPT_MODE=template/text', async () => {
+  await db.query("INSERT INTO wa_log(phone,dir,body,msg) VALUES ('919000011111','in','{\"text\":\"Hi\"}'::jsonb,'Hi')");
+    metaMode = 'textfail'; const n = sends.length;
+  await push('15-11-2026', [{ name: 'Text Party', amount: 23, rid: rid('t3'), ts: '01:02 PM' }]);
+  assert.deepEqual(sends.slice(n).map(x => x.type), ['text', 'template']);
+  assert.equal((await rows()).at(-1).data.via, 'template');
+  metaMode = 'ok';
+  const k = sends.length;
+  await push('15-11-2026', [{ name: 'Text Party', amount: 24, rid: rid('t4'), ts: '01:03 PM' }], { ...env, WA_RECEIPT_MODE: 'template' });
+  assert.equal(sends.length, k + 1); assert.equal(sends.at(-1).type, 'template');
+  await push('15-11-2026', [{ name: 'Text Party', amount: 25, rid: rid('t5'), ts: '01:04 PM' }], { ...env, WA_RECEIPT_MODE: 'text', WA_RECEIPT_TEXT: 'Namaste {name}, Rs {amount} mile.' });
+  assert.equal(sends.at(-1).text.body, 'Namaste Text Party, Rs 25 mile.');
+  await db.exec("DELETE FROM wa_log");
+  const z = sends.length;
+  await push('15-11-2026', [{ name: 'Text Party', amount: 26, rid: rid('t6'), ts: '01:05 PM' }], { ...env, WA_RECEIPT_MODE: 'text' });
+  assert.equal(sends.length, z); assert.match((await rows()).at(-1).error, /24 घंटे/);
+  await own('POST', '', { action: 'retry_all' });
 });
 await test('Meta delivery status failed → receipt Failed list me; delivered/read track hota hai', async () => {
   const r = (await rows()).at(-1);
