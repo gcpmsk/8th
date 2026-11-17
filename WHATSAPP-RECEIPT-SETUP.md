@@ -17,6 +17,30 @@ Dono apps (Notebook = `gcpmsk/8th`, Collection = `gcpmsk/Collection-satyam`) **s
 
 Receipt kab **nahi** jaati: Collection se aayi entry Notebook se dobara nahi (Collection khud bhejta hai) · cut entry · 3 din se purani entry · bina mobile number wale customer (Failed me dikhegi).
 
+## 🖼️ IMAGE RECEIPT (Collection जैसी PAYMENT RECEIPT की फ़ोटो) — सबसे नया, यही चलाएँ
+
+अब हर payment पर server खुद Collection app वाली **PAYMENT RECEIPT** की PNG बनाता है — सिर्फ़ **नाम, दिनांक, रकम (अक्षरों में भी), भुगतान का प्रकार, रसीद संख्या, पता** बदलते हैं — और WhatsApp पर भेजता है:
+
+| Customer की स्थिति | क्या जाता है |
+|---|---|
+| पिछले 23 घंटे में bot को message किया है | **Image + caption** (सीधे, Meta approval नहीं चाहिए) |
+| 24 घंटे window बंद | **Approved template** (`satyam_payment_receipt`, Header = Image) — header में यही बनी हुई image अपने-आप लग जाती है |
+| image बनाने/upload में कुछ भी गड़बड़ | पुराने तरीक़े से सादा text / template (receipt रुकती नहीं) |
+
+**Meta में क्या करना है (एक बार):** आपका `satyam_payment_receipt` (Hindi, Header = Image) template वही रहेगा. Body में **कोई {{variable}} नहीं** रखें (जैसा screenshot में है) — नाम/तारीख़/रकम image में है. **Submit for Review** दबाएँ. Header का sample image सिर्फ़ Meta review के लिए है; असली message में हर बार नयी image जाती है. (Body में variable रखे हों तो भी चलेगा — app 132000 आने पर अपने-आप बिना-variable वाला रूप आज़मा लेता है.)
+
+**Cloudflare Pages variables (दोनों projects):**
+| Variable | Value |
+|---|---|
+| `WA_RECEIPT_TEMPLATE` | `satyam_payment_receipt` (v2 वाला नाम हो तो बदल दें) |
+| `WA_RECEIPT_HEADER_IMAGE` | **खाली/delete** (अब ज़रूरत नहीं) |
+| `WA_RECEIPT_IMAGE` | `on` (default). बंद करना हो तो `off` |
+| `WA_RECEIPT_CAPTION` | (optional) image के नीचे का text. `{name} {amount} {date} {mode} {rno}` |
+| `WA_RECEIPT_MODE` | `auto` |
+
+**n8n में बदलाव की ज़रूरत नहीं** — receipt Cloudflare से जाती है. n8n में बस वही `Status निकालो → Receipt status (Postgres)` node चालू रहें ताकि delivered/failed दिखे.
+Receipts list में `🖼 image` / `📄 template` दिखता है; image में दिक़्क़त हो तो `img_err` में कारण सेव होता है.
+
 ## ⭐ सबसे आसान तरीका — सादा TEXT receipt (न image, न template, न Meta approval)
 
 App अब receipt **सादे WhatsApp text** में भेज सकता है। Meta की "24 घंटे window" के अंदर (customer ने पिछले 23 घंटे में bot को कोई भी message भेजा हो) text receipt सीधे जाती है। Window बंद हो तो अपने आप approved **template** पर चली जाती है।

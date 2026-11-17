@@ -4,6 +4,8 @@
   "private": true,
   "description": "SATYAM GOLD — Digital Notebook (Cloudflare Pages + PostgreSQL sync)",
   "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
+    "fontkit": "^3.0.0",
     "pg": "^8.13.1"
   },
   "devDependencies": {

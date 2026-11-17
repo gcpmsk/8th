@@ -17,9 +17,10 @@ class Client {
     return { ...r, rowCount: r.rows.length || r.affectedRows || 0 };
   }
 }
-let sends = [], metaMode = 'ok';
-const context = vm.createContext({ Response, Request, URL, console, crypto: webcrypto, TextEncoder, AbortController, setTimeout, clearTimeout,
+let sends = [], medias = [], metaMode = 'ok';
+const context = vm.createContext({ Response, Request, URL, console, crypto: webcrypto, TextEncoder, AbortController, FormData, Blob, setTimeout, clearTimeout,
   fetch: async (url, init) => {
+    if (String(url).endsWith('/media')) { medias.push(init.body); return new Response(JSON.stringify({ id: 'MEDIA' + medias.length }), { status: 200 }); }
     const payload = JSON.parse(init.body); sends.push(payload);
     if (metaMode === 'textfail' && payload.type === 'text') return new Response(JSON.stringify({ error: { code: 131047, message: 'Re-engagement message' } }), { status: 400 });
     if (metaMode === 'ok' || metaMode === 'textfail') return new Response(JSON.stringify({ messages: [{ id: 'wamid.' + sends.length }] }), { status: 200 });
@@ -40,7 +41,7 @@ async function load(rel) {
 }
 const sync = await load('./functions/api/sync.js'); await sync.evaluate();
 const owner = await load('./functions/api/wa-owner.js'); await owner.evaluate();
-const env = { DATABASE_URL: 'x', WA_TOKEN: 't', WA_PHONE_ID: 'p', WA_ADMIN_TOKEN: 'own', WA_RECEIPT_PARAMS: 'name,amount,date,mode' };
+const env = { DATABASE_URL: 'x', WA_TOKEN: 't', WA_PHONE_ID: 'p', WA_ADMIN_TOKEN: 'own', WA_RECEIPT_PARAMS: 'name,amount,date,mode', WA_RECEIPT_IMAGE: 'off' };
 
 async function store(key, value) {
   await db.query(`INSERT INTO sg_store(key,value) VALUES ($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, [key, JSON.stringify({ v: value })]);
@@ -183,4 +184,39 @@ await test('Chatting: date-wise customers list aur poori history (receipt bhi)',
   assert.match(chat.body.messages[2].text, /नया Order/);
   assert.equal((await own('GET', '?view=chat&phone=919876543210&date=13-11-2026')).body.messages.length, 0);
   assert.equal((await own('GET', '?view=chat&phone=abc&date=14-11-2026')).status, 400);
+});
+
+await test('IMAGE receipt: 24h window me image+caption, bahar ho to template header=image (id), 132000 par body-bina retry', async () => {
+  const envI = { ...env, WA_RECEIPT_IMAGE: 'on', __renderReceipt: async d => { renderedFor.push(d); return new Uint8Array([137, 80, 78, 71]); } };
+  const renderedFor = [];
+  await store('sg_mobiles', { 'IMG PARTY': '90000 22222' });
+  await db.exec("DELETE FROM wa_log");
+  let n = sends.length, m = medias.length;
+  await push('15-11-2026', [{ name: 'Img Party', amount: 310, rid: rid('i1'), ts: '02:00 PM' }], envI);   // window band → template + image header
+  assert.equal(medias.length, m + 1); assert.equal(sends.length, n + 1);
+  let p = JSON.parse(JSON.stringify(sends.at(-1)));
+  assert.equal(p.type, 'template'); assert.deepEqual(p.template.components[0], { type: 'header', parameters: [{ type: 'image', image: { id: 'MEDIA' + medias.length } }] });
+  assert.equal(renderedFor.at(-1).name, 'Img Party'); assert.equal(renderedFor.at(-1).amount, '310'); assert.equal(renderedFor.at(-1).date, '15-11-2026');
+  let r = (await rows()).at(-1); assert.equal(r.status, 'sent'); assert.equal(r.data.via, 'template');
+  await db.query("INSERT INTO wa_log(phone,dir,body,msg) VALUES ('919000022222','in','{\"text\":\"Hi\"}'::jsonb,'Hi')");
+  n = sends.length;
+  await push('15-11-2026', [{ name: 'Img Party', amount: 320, rid: rid('i2'), ts: '02:01 PM' }], envI);   // window khuli → image + caption
+  p = JSON.parse(JSON.stringify(sends.at(-1))); assert.equal(sends.length, n + 1);
+  assert.equal(p.type, 'image'); assert.match(p.image.caption, /Img Party/); assert.match(p.image.caption, /₹320/); assert.ok(p.image.id.startsWith('MEDIA'));
+  r = (await rows()).at(-1); assert.equal(r.data.via, 'image');
+  const lg = (await db.query("SELECT body FROM wa_log WHERE dir='out' ORDER BY id DESC LIMIT 1")).rows[0].body; assert.equal(lg.receipt, true);
+  // template me body variable nahi → 132000 → bina body ke dobara
+  await db.exec("DELETE FROM wa_log"); metaMode = 'params';
+  const origFetch = context.fetch; let calls = 0;
+  context.fetch = async (url, init) => { if (String(url).endsWith('/media')) return origFetch(url, init); const pl = JSON.parse(init.body); sends.push(pl); calls++;
+    const hasBody = (pl.template?.components || []).some(c => c.type === 'body');
+    return hasBody ? new Response(JSON.stringify({ error: { code: 132000, message: 'params mismatch' } }), { status: 400 }) : new Response(JSON.stringify({ messages: [{ id: 'wamid.ok' }] }), { status: 200 }); };
+  await push('15-11-2026', [{ name: 'Img Party', amount: 330, rid: rid('i3'), ts: '02:02 PM' }], envI);
+  context.fetch = origFetch; metaMode = 'ok';
+  assert.equal(calls, 2); assert.equal((await rows()).at(-1).status, 'sent');
+  // image banane/upload me gadbad → receipt phir bhi text/template se jaye
+  const bad = { ...envI, __renderReceipt: async () => { throw new Error('boom'); } };
+  await db.query("INSERT INTO wa_log(phone,dir,body,msg) VALUES ('919000022222','in','{\"text\":\"Hi\"}'::jsonb,'Hi')");
+  await push('15-11-2026', [{ name: 'Img Party', amount: 340, rid: rid('i4'), ts: '02:03 PM' }], bad);
+  assert.equal(sends.at(-1).type, 'text'); r = (await rows()).at(-1); assert.equal(r.status, 'sent'); assert.equal(r.data.img_err, 'boom');
 });
