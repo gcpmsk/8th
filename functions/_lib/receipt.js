@@ -17,6 +17,9 @@
         auto     : customer ने पिछले 23 घंटे में bot को message किया है → सादा TEXT receipt (न template, न image, न Meta approval);
                    window बंद हो (या text fail हो) → approved template
         template : हमेशा template      text : हमेशा सादा text (सिर्फ़ 24 घंटे window में चलता है)
+     WA_RECEIPT_IMAGE     on (default) | off  — ON: Collection जैसी PAYMENT RECEIPT की PNG image हर payment के नाम/तारीख़/रकम/mode से बनती है,
+                        Meta /media पर upload होकर (1) 24 घंटे window में image+caption की तरह, (2) बाहर हो तो template के Header=Image में जाती है
+     WA_RECEIPT_CAPTION   (optional) image के नीचे का text. {name} {amount} {date} {mode} {rno} {time} {address} चलते हैं
      WA_RECEIPT_TEXT      (optional) text receipt का अपना मज़मून. {name} {amount} {date} {mode} {rno} {time} {address} चलते हैं
    ===================================================================== */
 const pad = n => String(n).padStart(2, '0');
@@ -92,6 +95,12 @@ const DEFAULT_TEXT = `🧾 *भुगतान रसीद — SATYAM GOLD*
 रसीद संख्या: {rno}
 
 Satyam Gold पर विश्वास करने के लिए धन्यवाद।`;
+const DEFAULT_CAPTION = `🧾 *भुगतान रसीद — SATYAM GOLD*
+
+नमस्ते {name} जी, आपका ₹{amount} का भुगतान ({mode}) {date} को सफलतापूर्वक प्राप्त हो गया है।
+
+Satyam Gold पर विश्वास करने के लिए धन्यवाद।`;
+export const captionText = (env, d) => String(env.WA_RECEIPT_CAPTION || DEFAULT_CAPTION).replace(/\\n/g, '\n').replace(/\{(\w+)\}/g, (_, k) => clean(d[k]));
 export function receiptText(env, d) {
   return String(env.WA_RECEIPT_TEXT || DEFAULT_TEXT).replace(/\\n/g, '\n').replace(/\{(\w+)\}/g, (_, k) => clean(d[k]));
 }
@@ -115,15 +124,21 @@ export async function deliverReceipt(env, c, id, force = false) {
     const rawParams = String(env.WA_RECEIPT_PARAMS ?? 'name,amount,date,mode').trim();
     const fields = /^(none|no|nil|-|0)$/i.test(rawParams) ? [] : rawParams.split(',').map(s => s.trim()).filter(Boolean);
     const hdrImg = String(env.WA_RECEIPT_HEADER_IMAGE || '').trim();
-    const template = { name: env.WA_RECEIPT_TEMPLATE || 'satyam_payment_receipt', language: { code: env.WA_RECEIPT_LANG || 'hi' } };
-    const components = [];
-    if (hdrImg) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: hdrImg } }] });
-    if (fields.length) components.push({ type: 'body', parameters: fields.map(f => ({ type: 'text', text: clean(d[f]) })) });
-    if (components.length) template.components = components;
+    const imgOn = !/^(off|no|none|false|0)$/i.test(String(env.WA_RECEIPT_IMAGE ?? 'on').trim());
+    const GV = env.WA_GRAPH_VERSION || 'v23.0';
+    const buildTemplate = (mediaId, flds) => {
+      const template = { name: env.WA_RECEIPT_TEMPLATE || 'satyam_payment_receipt', language: { code: env.WA_RECEIPT_LANG || 'hi' } };
+      const components = [];
+      if (mediaId) components.push({ type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] });
+      else if (hdrImg) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: hdrImg } }] });
+      if (flds.length) components.push({ type: 'body', parameters: flds.map(f => ({ type: 'text', text: clean(d[f]) })) });
+      if (components.length) template.components = components;
+      return template;
+    };
     const send = async payload => {      // Meta को एक message भेजो → {ok, mid, code, msg}
       const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
       try {
-        const r = await fetch(`https://graph.facebook.com/${env.WA_GRAPH_VERSION || 'v23.0'}/${env.WA_PHONE_ID}/messages`, {
+        const r = await fetch(`https://graph.facebook.com/${GV}/${env.WA_PHONE_ID}/messages`, {
           method: 'POST', signal: ctl.signal, headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' },
           body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, ...payload }) });
         const out = await r.json().catch(() => ({}));
@@ -132,17 +147,52 @@ export async function deliverReceipt(env, c, id, force = false) {
         return { ok: true, mid };
       } finally { clearTimeout(tm); }
     };
+    /* Receipt की PNG image बनाओ → Meta /media पर upload → media id. कुछ भी गड़बड़ हो तो '' (receipt बिना image के जाएगी) */
+    let media = null, imgErr = '';
+    const getMedia = async () => {
+      if (media !== null) return media;
+      media = '';
+      if (!imgOn) return media;
+      try {
+        const render = env.__renderReceipt || (await import('./receipt-image.js')).renderReceiptPng;
+        const png = await render(d, row.amount);
+        const fd = new FormData();
+        fd.append('messaging_product', 'whatsapp'); fd.append('type', 'image/png');
+        fd.append('file', new Blob([png], { type: 'image/png' }), 'receipt.png');
+        const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 15000);
+        try {
+          const r = await fetch(`https://graph.facebook.com/${GV}/${env.WA_PHONE_ID}/media`, { method: 'POST', signal: ctl.signal, headers: { Authorization: 'Bearer ' + env.WA_TOKEN }, body: fd });
+          const out = await r.json().catch(() => ({}));
+          if (!r.ok || !out?.id) throw new Error(`media upload Meta ${out?.error?.code || r.status}: ${out?.error?.message || 'no id'}`);
+          media = out.id;
+        } finally { clearTimeout(tm); }
+      } catch (e) { imgErr = String(e?.message || e).slice(0, 200); }
+      return media;
+    };
     const mode = String(env.WA_RECEIPT_MODE || 'auto').trim().toLowerCase();
     let res = null, via = 'template', textErr = '';
     if (mode === 'auto' || mode === 'text') {
       let open = false;
       { try { open = !!(await c.query("SELECT 1 FROM wa_log WHERE phone=$1 AND dir='in' AND created_at > now() - interval '23 hours' LIMIT 1", [phone])).rows[0]; } catch (_) {} }
       if (open) {
-        res = await send({ type: 'text', text: { preview_url: false, body: receiptText(env, d) } });
-        if (res.ok) via = 'text'; else { textErr = `Meta ${res.code}: ${res.msg}`; if (mode !== 'text') res = null; }
+        const mid0 = await getMedia();
+        res = await send(mid0 ? { type: 'image', image: { id: mid0, caption: captionText(env, d) } } : { type: 'text', text: { preview_url: false, body: receiptText(env, d) } });
+        if (res.ok) via = mid0 ? 'image' : 'text'; else { textErr = `Meta ${res.code}: ${res.msg}`; if (mode !== 'text') res = null; }
       } else if (mode === 'text') return await fail('Customer ने 24 घंटे में WhatsApp पर message नहीं किया — सादा text नहीं जा सकता (WA_RECEIPT_MODE=auto रखें ताकि template जाए)');
     }
-    if (!res || (!res.ok && mode !== 'text')) res = await send({ type: 'template', template });
+    if (!res || (!res.ok && mode !== 'text')) {
+      const mid1 = await getMedia();
+      res = await send({ type: 'template', template: buildTemplate(mid1, fields) });
+      if (mid1) {   // template की बनावट अलग हो तो अपने-आप दूसरे combination आज़माओ (body variable / header image का mismatch = 132000)
+        const tries = [];
+        if (fields.length) tries.push([mid1, []]);
+        tries.push(['', fields]);
+        for (const [m2, f2] of tries) {
+          if (res.ok || ![132000, 132012].includes(res.code)) break;
+          res = await send({ type: 'template', template: buildTemplate(m2, f2) });
+        }
+      }
+    }
     const mid = res.ok ? res.mid : null;
     if (!res.ok) {
       const code = res.code;
@@ -152,12 +202,12 @@ export async function deliverReceipt(env, c, id, force = false) {
         : code === 131042 ? ' → Meta में Payment method जोड़ें (WhatsApp Manager → Add payment method)'
         : code === 131047 ? ' → Customer की 24 घंटे की window बंद है, template चाहिए'
         : code === 190 ? ' → WA_TOKEN expire — नया permanent token डालें' : '';
-      return await fail(`Meta ${code}: ${res.msg}${hint}${textErr ? ' | text: ' + textErr : ''}`);
+      return await fail(`Meta ${code}: ${res.msg}${hint}${textErr ? ' | text: ' + textErr : ''}${imgErr ? ' | image: ' + imgErr : ''}`);
     }
-    await c.query("UPDATE wa_receipts SET status='sent', delivery='accepted', meta_id=$2, phone=$3, error=NULL, data=data || jsonb_build_object('via',$4::text), updated_at=now() WHERE id=$1", [id, mid, phone, via]);
+    await c.query("UPDATE wa_receipts SET status='sent', delivery='accepted', meta_id=$2, phone=$3, error=NULL, data=data || jsonb_build_object('via',$4::text,'img_err',$5::text), updated_at=now() WHERE id=$1", [id, mid, phone, via, imgErr]);
     try { // Chatting history में भी दिखे
       await c.query("INSERT INTO wa_log (phone, dir, body, msg) VALUES ($1,'out',$2::jsonb,'RECEIPT')",
-        [phone, JSON.stringify({ receipt: true, via, text: via === 'text' ? receiptText(env, d) : `🧾 Payment Receipt (template) भेजी — ${d.name} · ₹${d.amount} · ${d.mode} · ${d.date}` })]);
+        [phone, JSON.stringify({ receipt: true, via, text: via === 'text' ? receiptText(env, d) : via === 'image' ? '🖼 ' + captionText(env, d) : `🧾 Payment Receipt (template${media ? ' + image' : ''}) भेजी — ${d.name} · ₹${d.amount} · ${d.mode} · ${d.date}` })]);
     } catch (_) {}
     return { id, ok: true, phone, via };
   } catch (e) {
