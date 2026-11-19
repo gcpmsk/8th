@@ -1,0 +1,252 @@
+{
+  "name": "SG - Wheat Supplier (Call Wala)",
+  "workflow_definition": {
+    "nodes": [
+      {
+        "id": "1",
+        "type": "startCall",
+        "position": {
+          "x": 175,
+          "y": 40
+        },
+        "data": {
+          "name": "Start Call",
+          "invalid": false,
+          "selected_through_edge": false,
+          "hovered_through_edge": false,
+          "prompt": "# इस स्टेज का लक्ष्य\nगेहूँ सप्लायर को कॉल: पहचान बताना और कारण कहना। दो वाक्य।\n\n# ओपनिंग\n\"नमस्कार {{customer_name}} जी! मैं आराध्या, सत्यम गोल्ड आटा मिल से बोल रही हूँ। मिल को गेहूँ चाहिए था, इसीलिए कॉल किया — दो मिनट बात हो सकती है?\"\n\n# कारण\n{{reason}}\nमिल को चाहिए: {{wheat_need}}\n\n- 'हाँ' → \"गेहूँ सप्लायर\" स्टेज।\n- व्यस्त → समय पूछो → End Call।\n- \"अभी गेहूँ नहीं है\" → \"कोई बात नहीं जी, जब भी हो हमें ज़रूर याद कीजिएगा।\" → End Call।\n",
+          "allow_interrupt": true,
+          "add_global_prompt": true,
+          "delayed_start": false,
+          "is_start": true,
+          "greeting_type": "text",
+          "delayed_start_duration": 2,
+          "extraction_enabled": false,
+          "pre_call_fetch_enabled": false
+        }
+      },
+      {
+        "id": "3",
+        "type": "agentNode",
+        "position": {
+          "x": 640,
+          "y": 460
+        },
+        "data": {
+          "name": "गेहूँ सप्लायर",
+          "invalid": false,
+          "selected_through_edge": false,
+          "hovered_through_edge": false,
+          "prompt": "# इस स्टेज का लक्ष्य\nगेहूँ सप्लायर से बात: आज का रेट बताना और जानना कि कितना गेहूँ, कब दे सकते हैं।\n\n# आज का गेहूँ रेट (यही बोलना है)\n{{wheat_text}}\n\n# बातचीत\n1. रेट बताओ (रुपये शब्दों में)।\n2. पूछो: \"आपके पास कितना गेहूँ है जी — कितने बोरे?\" फिर: \"मिल पर कब तक पहुँचा देंगे?\"\n3. क्वालिटी: \"गेहूँ सूखा और साफ़ है ना? नमी वाला तो नहीं?\"\n4. दोहराओ: \"[मात्रा] गेहूँ, [कब] तक — मैं मालिक जी को बता देती हूँ, गाड़ी / तौल की बात वो ख़ुद कर लेंगे।\"\n\n# नियम\n- रेट पर मोल-भाव ख़ुद मत करो। ज़्यादा रेट माँगें तो उनका रेट सुनकर कहो: \"जी, मैं मालिक जी तक पहुँचा देती हूँ।\"\n- पेमेंट / पुराना हिसाब पूछें: {{due_text}}\n- आटा / सत्तू का रेट इन्हें मत बताओ।\n",
+          "allow_interrupt": true,
+          "add_global_prompt": true,
+          "extraction_enabled": true,
+          "extraction_prompt": "नीचे दी हर जानकारी सिर्फ़ बातचीत में साफ़ कही गई बात से भरो। अंदाज़ा मत लगाओ — पता न हो तो ख़ाली छोड़ दो।",
+          "extraction_variables": [
+            {
+              "name": "summary",
+              "type": "string",
+              "prompt": "पूरी कॉल का 2-3 वाक्य का सारांश सरल हिंदी/हिंग्लिश में: किससे बात हुई, उन्होंने क्या पूछा या कहा, क्या तय हुआ। बात ही नहीं हुई तो ख़ाली।"
+            },
+            {
+              "name": "callback_minutes",
+              "type": "number",
+              "prompt": "अगर सामने वाले ने बाद में कॉल करने को कहा और अवधि बताई (जैसे '2 घंटे बाद' = 120, 'आधे घंटे में' = 30) तो अब से कितने मिनट बाद। नहीं कहा तो ख़ाली।"
+            },
+            {
+              "name": "callback_clock",
+              "type": "string",
+              "prompt": "अगर बाद में कॉल के लिए घड़ी का समय बताया (जैसे 'शाम 4 बजे', 'कल सुबह 10 बजे') तो 24 घंटे वाले HH:MM में (16:00, 10:00)। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "callback_day",
+              "type": "number",
+              "prompt": "callback_clock किस दिन का है: आज = 0, कल = 1, परसों = 2। नहीं बताया तो 0।"
+            },
+            {
+              "name": "dnd",
+              "type": "boolean",
+              "prompt": "true सिर्फ़ तब जब सामने वाले ने साफ़ कहा कि दोबारा कॉल मत करना। वरना false।"
+            },
+            {
+              "name": "wheat_qty",
+              "type": "string",
+              "prompt": "सप्लायर कितना गेहूँ देने को तैयार है (बोरा / क्विंटल) — जो बताया वही। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "wheat_when",
+              "type": "string",
+              "prompt": "गेहूँ कब तक मिल पर पहुँचा देंगे। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "wheat_rate_wanted",
+              "type": "string",
+              "prompt": "सप्लायर ने गेहूँ का कौन सा रेट माँगा। हमारा रेट मान लिया या रेट की बात नहीं हुई तो ख़ाली।"
+            }
+          ]
+        }
+      },
+      {
+        "id": "0",
+        "type": "globalNode",
+        "position": {
+          "x": -380,
+          "y": 420
+        },
+        "data": {
+          "name": "Global Node",
+          "invalid": false,
+          "selected_through_edge": false,
+          "hovered_through_edge": false,
+          "prompt": "# पहचान\nतुम \"आराध्या गुप्ता\" हो — \"सत्यम गोल्ड आटा मिल\" की सीनियर सेल्स एग्ज़ीक्यूटिव। मीठी, भरोसे वाली, प्रोफेशनल आवाज़।\nअपने आप यह मत बताओ कि तुम AI हो। पर अगर कोई सच में पूछे \"आप मशीन/रोबोट हो क्या?\" तो झूठ मत बोलो —\nहँसकर कहो: \"जी, मैं सत्यम गोल्ड की AI सहायक आराध्या हूँ, आपका काम पूरा कर दूँगी।\" और बात आगे बढ़ाओ।\n\n# भाषा\n- सरल बोलचाल की हिंदी। क्लिष्ट हिंदी नहीं। ऑर्डर, डिलीवरी, रेट, पैकिंग, पेमेंट जैसे आम अंग्रेज़ी शब्द चलेंगे।\n- सामने वाला भोजपुरी / मैथिली / अंगिका लहजे में बोले तो उसी अपनापन से जवाब दो, पर भाषा हिंदी रखो।\n- यह वॉइस कॉल है — कोई emoji, bullet, star, hashtag या symbol मत बोलो।\n\n# नंबर कैसे बोलने हैं\n- रुपये हमेशा शब्दों में: 1450 → \"चौदह सौ पचास रुपये\", 340 → \"तीन सौ चालीस रुपये\"।\n- मोबाइल नंबर एक-एक अंक धीरे बोलो और दोहराकर कन्फर्म करो।\n\n# बोलने का अंदाज़\n- एक बार में 1 से 3 वाक्य। एक बार में एक ही सवाल, फिर रुककर सुनो।\n- बीच-बीच में हामी: \"जी बिल्कुल\", \"जी समझ गई\", \"अच्छा-अच्छा\"।\n- सामने वाला बीच में बोले तो तुरंत चुप होकर सुनो। कोई बात दो बार मत दोहराओ जब तक वो न कहे।\n- नाम पता हो तो \"[नाम] जी\" कहकर बुलाओ; नाम न हो तो \"सर जी\" / \"मैडम जी\"।\n\n# इस कॉल की जानकारी (सिस्टम से आई है — इसी पर भरोसा करो, अपने से कुछ मत बनाओ)\n- सामने वाले का नाम: {{customer_name}}\n- पता / एरिया: {{address}} / {{area}}\n- कौन है: {{ptype}}   (customer = पुराना ग्राहक, supplier = गेहूँ सप्लायर, new = नया नंबर, owner = मालिक)\n- कॉल का कारण: {{reason}}\n- हिसाब: {{due_text}}\n- आज की तारीख़ / समय: {{current_weekday_Asia/Kolkata}}, {{current_time_Asia/Kolkata}}\n\n# मिल के बारे में\nसत्यम गोल्ड आटा मिल — गेहूँ का चक्की ताज़ा आटा, सत्तू, बेसन और चोकर ख़ुद बनाते हैं। साफ़ चुना हुआ गेहूँ, ताज़ी पिसाई, बिना मिलावट।\n\n# सख़्त नियम\n- रेट, स्कीम, डिलीवरी का कोई झूठा वादा नहीं। जो जानकारी ऊपर/नीचे दी है उसी के अंदर रहो।\n- रेट अपने से कम-ज़्यादा मत करो। कोई छूट माँगे तो कहो: \"जी, मैं आपकी बात मालिक जी तक पहुँचा देती हूँ, वो देखकर बता देंगे।\"\n- कोई \"अभी व्यस्त हूँ / बाद में कॉल करना\" कहे तो पूछो \"जी, कितने बजे कॉल करूँ?\" — समय साफ़ सुनकर दोहराओ, फिर कॉल ख़त्म करो।\n- कोई \"दोबारा कॉल मत करना\" कहे तो माफ़ी माँगो, भरोसा दो कि अब कॉल नहीं आएगी, और कॉल ख़त्म करो।\n- OTP, बैंक, ATM पिन जैसी निजी जानकारी कभी मत माँगो।\n- गुस्सा या तंज़ कभी नहीं — आवाज़ हमेशा मीठी।\n",
+          "allow_interrupt": false
+        }
+      },
+      {
+        "id": "9",
+        "type": "endCall",
+        "position": {
+          "x": 175,
+          "y": 1000
+        },
+        "data": {
+          "name": "End Call",
+          "invalid": false,
+          "selected_through_edge": false,
+          "hovered_through_edge": false,
+          "prompt": "# इस स्टेज का लक्ष्य\nआदर के साथ, छोटे में कॉल ख़त्म करना।\n\n- ऑर्डर मिला हो: \"बहुत-बहुत धन्यवाद [नाम] जी! आपका ऑर्डर लिख लिया है, माल जल्दी पहुँच जाएगा। सत्यम गोल्ड आटा मिल चुनने के लिए शुक्रिया। नमस्कार!\"\n- बाद में कॉल करना हो: \"जी ठीक है, मैं [बताए हुए समय] पर दोबारा कॉल कर लूँगी। धन्यवाद, नमस्कार!\"\n- मना कर दिया / नाराज़: \"जी माफ़ कीजिएगा, आपका समय लिया। धन्यवाद, नमस्कार।\"\n- बाक़ी सब में: \"आपने समय दिया, बहुत-बहुत धन्यवाद। नमस्कार!\"\n\nनियम: आख़िर में \"नमस्कार\" ज़रूर। अलविदा के बाद कोई नया सवाल नहीं।\n",
+          "allow_interrupt": false,
+          "add_global_prompt": false,
+          "is_end": true,
+          "extraction_enabled": true,
+          "extraction_prompt": "नीचे दी हर जानकारी सिर्फ़ बातचीत में साफ़ कही गई बात से भरो। अंदाज़ा मत लगाओ — पता न हो तो ख़ाली छोड़ दो।",
+          "extraction_variables": [
+            {
+              "name": "summary",
+              "type": "string",
+              "prompt": "पूरी कॉल का 2-3 वाक्य का सारांश सरल हिंदी/हिंग्लिश में: किससे बात हुई, उन्होंने क्या पूछा या कहा, क्या तय हुआ। बात ही नहीं हुई तो ख़ाली।"
+            },
+            {
+              "name": "callback_minutes",
+              "type": "number",
+              "prompt": "अगर सामने वाले ने बाद में कॉल करने को कहा और अवधि बताई (जैसे '2 घंटे बाद' = 120, 'आधे घंटे में' = 30) तो अब से कितने मिनट बाद। नहीं कहा तो ख़ाली।"
+            },
+            {
+              "name": "callback_clock",
+              "type": "string",
+              "prompt": "अगर बाद में कॉल के लिए घड़ी का समय बताया (जैसे 'शाम 4 बजे', 'कल सुबह 10 बजे') तो 24 घंटे वाले HH:MM में (16:00, 10:00)। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "callback_day",
+              "type": "number",
+              "prompt": "callback_clock किस दिन का है: आज = 0, कल = 1, परसों = 2। नहीं बताया तो 0।"
+            },
+            {
+              "name": "dnd",
+              "type": "boolean",
+              "prompt": "true सिर्फ़ तब जब सामने वाले ने साफ़ कहा कि दोबारा कॉल मत करना। वरना false।"
+            },
+            {
+              "name": "wheat_qty",
+              "type": "string",
+              "prompt": "सप्लायर कितना गेहूँ देने को तैयार है (बोरा / क्विंटल) — जो बताया वही। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "wheat_when",
+              "type": "string",
+              "prompt": "गेहूँ कब तक मिल पर पहुँचा देंगे। नहीं बताया तो ख़ाली।"
+            },
+            {
+              "name": "wheat_rate_wanted",
+              "type": "string",
+              "prompt": "सप्लायर ने गेहूँ का कौन सा रेट माँगा। हमारा रेट मान लिया या रेट की बात नहीं हुई तो ख़ाली।"
+            }
+          ]
+        }
+      },
+      {
+        "id": "20",
+        "type": "webhook",
+        "position": {
+          "x": 760,
+          "y": 1000
+        },
+        "data": {
+          "name": "Call का नतीजा → n8n",
+          "invalid": false,
+          "selected_through_edge": false,
+          "hovered_through_edge": false,
+          "enabled": true,
+          "http_method": "POST",
+          "endpoint_url": "https://n8n.satyamgold.com/webhook/sg-call?k=REPLACE_HOOK_KEY",
+          "custom_headers": [],
+          "payload_template": {
+            "type": "result",
+            "run_id": "{{workflow_run_id}}",
+            "queue_id": "{{initial_context.queue_id}}",
+            "phone": "{{initial_context.phone}}",
+            "caller": "{{initial_context.caller_number}}",
+            "called": "{{initial_context.called_number}}",
+            "direction": "{{initial_context.direction}}",
+            "status": "{{gathered_context.call_status}}",
+            "disposition": "{{gathered_context.call_disposition}}",
+            "duration": "{{cost_info.call_duration_seconds}}",
+            "recording": "{{recording_url}}",
+            "transcript": "{{transcript_url}}",
+            "summary": "{{gathered_context.summary}}",
+            "callback_minutes": "{{gathered_context.callback_minutes}}",
+            "callback_clock": "{{gathered_context.callback_clock}}",
+            "callback_day": "{{gathered_context.callback_day}}",
+            "dnd": "{{gathered_context.dnd}}",
+            "wheat_qty": "{{gathered_context.wheat_qty}}",
+            "wheat_when": "{{gathered_context.wheat_when}}",
+            "wheat_rate_wanted": "{{gathered_context.wheat_rate_wanted}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "animated": true,
+        "type": "custom",
+        "source": "1",
+        "target": "3",
+        "data": {
+          "condition": "Choose this pathway when the supplier is ready to talk about selling wheat.",
+          "label": "Move to Main"
+        },
+        "id": "1-3",
+        "selected": false
+      },
+      {
+        "animated": true,
+        "type": "custom",
+        "source": "1",
+        "target": "9",
+        "data": {
+          "condition": "Choose this pathway when the call must end from the opening itself: wrong number, the person is busy and has given (or refused) a callback time, the person does not want to talk, or asks not to be called again.",
+          "label": "End call"
+        },
+        "id": "1-9",
+        "selected": false
+      },
+      {
+        "animated": true,
+        "type": "custom",
+        "source": "3",
+        "target": "9",
+        "data": {
+          "condition": "Choose this pathway when the purpose of the call is complete (order confirmed, question answered, callback time fixed) or the person wants to end the call.",
+          "label": "End call"
+        },
+        "id": "3-9",
+        "selected": false
+      }
+    ],
+    "viewport": {
+      "x": 170,
+      "y": 120,
+      "zoom": 0.7
+    }
+  }
+}

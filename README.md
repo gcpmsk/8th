@@ -4,7 +4,7 @@ Hindi handwriting-style digital ledger (डिजिटल बही-खात�
 
 ## Features
 - 🔐 Login screen with golden animated "SATYAM GOLD" branding
-- 🏠 Home dashboard: 7 colourful 3D tiles (Notebook, S.Book, Print, Order Book, Attendance, Call, Emergency) + Chat AI button
+- 🏠 Home dashboard: colourful 3D tiles (Notebook, S.Book, Print, Order Book, Attendance, Call Wala, Set Rate, Tally View, Emergency Wala) + Chat AI button
 - 📔 Two-page notebook (no lines, handwriting style) with Hindi headers:
   - रोकड + नगदी बिक्री (item → qty → rate → Cash / A/C / Mix payment)
   - जमा खाते नाम (A/C entries shown in red)
@@ -727,3 +727,29 @@ Debug (Adminer, owner only):
 SELECT phone,dir,body,created_at FROM wa_log ORDER BY id DESC LIMIT 20;
 SELECT objection_id,delivery,last_error,meta_id FROM wa_decisions ORDER BY updated_at DESC LIMIT 20;
 ```
+
+---
+
+## 📞 CALL WALA + 🚨 EMERGENCY WALA (November 2026)
+
+पूरा setup: **[CALL-WALA-SETUP.md](CALL-WALA-SETUP.md)**
+
+**📞 Call Wala** (Home → Call Wala) — Dograh AI कॉल, n8n से चलती है, सब कुछ PostgreSQL में:
+- Tally View में हर party के दो नंबर: **Call Wala** + **WhatsApp Wala**
+- Call History + recording player + AI सारांश + **Name Search Bar**; नाम पर **3 बार click** = तारीख़-वार पूरी profile
+- कॉल का order उसी Order Book (`sg_ord_<date>`) में, बैंगनी "📞 AI Call" tag; **Rate Inquiry / Negotiation** tab (Approve / Reject)
+- **Area-Wise Auto-Dialer** (Smart Order-Skip), **Inactive Auto-Call** (Master → Area → Customer, Set Rate जैसा), **Dialpad + Karan**, **Schedule**, लाल **Cancel All Calls**
+- **गेहूँ सप्लायर डेस्क**, **नए Lead**, **Live Call Queue Monitor**
+- Safeguards: Calling Hours Lock, Busy/No-Answer Auto-Retry, Call Back Later, Credit/Overdue Guard, DND list
+
+**🚨 Emergency Wala** (Home → आख़िरी tile) — Live Stock, माल आवत (700g सूती बोरा कटौती), रसीद कटते ही auto-deduction,
+Low-Stock पर दोनों Owner को WhatsApp + AI कॉल, बारदाना (खाली बोरा) हिसाब.
+
+| File | काम |
+|---|---|
+| `call-schema.sql` | Adminer में paste — सारी tables + functions (`cw_tick`, `cw_hook`, `cw_api`, `em_stock`) |
+| `n8n-call-wala.json` | n8n में Import |
+| `dograh/*.json` | Dograh → Upload Agent Definition (5 agent) |
+| `call.js`, `emergency.js`, `sg-extra.css` | App के दोनों screen + Order Book का नया look |
+| `functions/api/call.js` | `/api/call` (Owner key) |
+| `call.test.mjs` | `npm test` — in-memory PostgreSQL पर logic test |

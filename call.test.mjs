@@ -122,3 +122,16 @@ test('Emergency Wala: 700g बोरा कटौती, रसीद से aut
   await db.query(`UPDATE cw_queue SET status='done' WHERE status='dialing'`);
   assert.equal((await tick()).wa.length, 0);                    // वही alert दोबारा नहीं (24 घंटे)
 });
+
+test('"कल शाम 4 बजे कॉल करना" → callback_clock/day से Schedule; "दोबारा कॉल मत करना" → DND', async () => {
+  await db.query(`DELETE FROM cw_queue`);
+  const o = (await one('SELECT cw_finish($1::jsonb) AS o', [JSON.stringify({ run_id: '900', phone: '9000000003', direction: 'outbound', disposition: 'user_hangup', duration: '20',
+    summary: 'Kal sham 4 baje call karne ko kaha', callback_clock: '16:00', callback_day: '1', dnd: 'false' })])).o;
+  assert.equal(o.ok, true);
+  const q = await one(`SELECT to_char(scheduled_at AT TIME ZONE 'Asia/Kolkata','HH24:MI') AS t, (scheduled_at AT TIME ZONE 'Asia/Kolkata')::date - (now() AT TIME ZONE 'Asia/Kolkata')::date AS d, name FROM cw_queue WHERE kind='callback'`);
+  assert.equal(q.t, '16:00'); assert.equal(q.d, 1); assert.equal(q.name, 'Shyam Kirana');
+  await db.query('SELECT cw_finish($1::jsonb)', [JSON.stringify({ run_id: '901', phone: '9000000004', direction: 'outbound', duration: '9', summary: 'Mana kiya', dnd: 'true' })]);
+  assert.equal((await api({ view: 'dash' })).dnd.length, 1);
+  const r = await api({ action: 'enqueue', kind: 'area', items: [{ key: 'MOHAN TRADERS', name: 'Mohan Traders', phone: '9000000004' }] });
+  assert.deepEqual([r.added, r.skipped], [0, 1]);
+});

@@ -1,0 +1,372 @@
+{
+  "name": "SATYAM GOLD - Call Wala (Dograh AI Calls)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "cw-sched",
+      "name": "हर 30 सेकंड",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cw-tick",
+      "name": "कतार देखो (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.cw_tick() AS o;",
+        "options": {}
+      },
+      "notes": "call-schema.sql पहले Adminer में चला लें. वही PostgreSQL credential जो WhatsApp workflow में है."
+    },
+    {
+      "id": "cw-pick-dial",
+      "name": "Call चुनो",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -160
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// सिर्फ़ तब आगे बढ़ो जब नई call लगानी है\nconst o = $input.first().json.o || {};\nreturn o.action === 'dial' ? [{ json: { id: o.id, path: o.path, body: o.body } }] : [];"
+      }
+    },
+    {
+      "id": "cw-dial",
+      "name": "Dograh: Call लगाओ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://REPLACE-DOGRAH-URL' + $json.path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "notes": "Credential: Header Auth — Name: X-API-Key, Value: Dograh की API key (Dograh → Developers → API Keys). URL में REPLACE-DOGRAH-URL की जगह अपना Dograh URL.",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-after-dial",
+      "name": "Call का जवाब save",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        -160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.cw_after($1::bigint, 'dial', $2::jsonb) AS o;",
+        "options": {
+          "queryReplacement": "={{ [ $('Call चुनो').first().json.id, JSON.stringify({ statusCode: $json.statusCode, body: $json.body }) ] }}"
+        }
+      },
+      "notes": "वही PostgreSQL credential चुनें जो WhatsApp वाले workflow में है."
+    },
+    {
+      "id": "cw-pick-check",
+      "name": "स्थिति चुनो",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// चल रही call की स्थिति Dograh से पूछनी है\nconst o = $input.first().json.o || {};\nreturn o.action === 'check' ? [{ json: { id: o.id, path: o.path } }] : [];"
+      }
+    },
+    {
+      "id": "cw-check",
+      "name": "Dograh: Call की स्थिति",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://REPLACE-DOGRAH-URL' + $json.path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "notes": "Credential: Header Auth — Name: X-API-Key, Value: Dograh की API key (Dograh → Developers → API Keys). URL में REPLACE-DOGRAH-URL की जगह अपना Dograh URL.",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-after-check",
+      "name": "स्थिति save",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.cw_after($1::bigint, 'check', $2::jsonb) AS o;",
+        "options": {
+          "queryReplacement": "={{ [ $('स्थिति चुनो').first().json.id, JSON.stringify({ statusCode: $json.statusCode, body: $json.body }) ] }}"
+        }
+      },
+      "notes": "वही PostgreSQL credential चुनें जो WhatsApp वाले workflow में है."
+    },
+    {
+      "id": "cw-pick-wa",
+      "name": "Stock Alert निकालो",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        160
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Emergency Wala: low-stock होने पर दोनों Owner के WhatsApp message\nconst o = $input.first().json.o || {};\nreturn (o.wa || []).map(m => ({ json: m }));"
+      }
+    },
+    {
+      "id": "cw-wa",
+      "name": "WhatsApp Alert भेजो",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "notes": "वही Header Auth credential (Authorization: Bearer META_TOKEN) और वही PHONE_NUMBER_ID जो 'WhatsApp JSON भेजो' node में है.",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cw-hook",
+      "name": "Dograh Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        420
+      ],
+      "webhookId": "sg-call",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sg-call",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Production URL: https://n8n.satyamgold.com/webhook/sg-call?k=<hook key>  — पूरा URL app के Call Wala → Settings में मिलता है."
+    },
+    {
+      "id": "cw-hook-db",
+      "name": "Hook (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.cw_hook($1::jsonb) AS o;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ q: $json.query, b: $json.body }) ] }}"
+        }
+      },
+      "notes": "वही PostgreSQL credential चुनें जो WhatsApp वाले workflow में है."
+    },
+    {
+      "id": "cw-hook-res",
+      "name": "Dograh को जवाब",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.o) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "हर 30 सेकंड": {
+      "main": [
+        [
+          {
+            "node": "कतार देखो (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "कतार देखो (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Call चुनो",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "स्थिति चुनो",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stock Alert निकालो",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call चुनो": {
+      "main": [
+        [
+          {
+            "node": "Dograh: Call लगाओ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dograh: Call लगाओ": {
+      "main": [
+        [
+          {
+            "node": "Call का जवाब save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "स्थिति चुनो": {
+      "main": [
+        [
+          {
+            "node": "Dograh: Call की स्थिति",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dograh: Call की स्थिति": {
+      "main": [
+        [
+          {
+            "node": "स्थिति save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stock Alert निकालो": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Alert भेजो",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dograh Webhook": {
+      "main": [
+        [
+          {
+            "node": "Hook (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hook (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Dograh को जवाब",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {},
+  "tags": []
+}
