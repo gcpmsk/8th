@@ -234,6 +234,7 @@ function renderOrderBook(){
   }).join('') : `<div class="ob-empty">—</div>`;
 
   wrap.innerHTML=`
+    <div class="ob-legend"><span><i style="background:#3b82f6"></i>App order</span><span><i style="background:#128c4a"></i>WhatsApp</span><span><i style="background:#7c3aed"></i>AI Call</span><span><i style="background:#E67300"></i>Collection</span><span><i style="background:#dc2626"></i>पिछली तारीख़</span><span><i style="background:#f59e0b"></i>बचा हुआ</span></div>
     <div class="ob-card">
       <div class="ob-card-h dark">Σ TOTAL — बाक़ी सारा order (पिछला + आज)</div>
       <div class="ob-total-grid">${totHTML}</div>
@@ -271,14 +272,15 @@ function nameBlockHTML(o){
 }
 function isWhatsAppOrder(o){ return !!o && (o.wa===true || o.src==='wa' || /\(WA\)/.test(o.tvEts||'')); }
 function isCollOrder(o){ return !!o && (o.src==='coll' || !!o.coll); }
+function isCallOrder(o){ return !!o && (o.src==='call' || o.call===true); }
 function waOrderBadge(o){
   if(isCollOrder(o)) return '';   /* Collection order: अलग tag नहीं — पूरी row Dark Orange (.coll-order) */
-  return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':''; }
+  return isWhatsAppOrder(o)?'<span class="ob-tag wa-source">WhatsApp</span>':(isCallOrder(o)?'<span class="ob-tag call-source">📞 AI Call</span>':''); }
 function orderCardHTML(o,isBack){
   const a=areaOf(o.address);
   const part=!!(o.deliv&&o.deliv.length);
   const gs=groupItems(o);
-  return `<div class="ob-o${isWhatsAppOrder(o)?' wa-order':''}${isCollOrder(o)?' coll-order':''}${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
+  return `<div class="ob-o${isWhatsAppOrder(o)?' wa-order':''}${isCollOrder(o)?' coll-order':''}${isCallOrder(o)?' call-order':''}${isBack?' back':''}${part?' part':''}" data-od="${esc(o.date)}" data-oi="${esc(o.id)}">
     <div class="ob-o-h">
       <span class="ob-sl">${esc(String(o.no))}</span>
       ${nameBlockHTML(o)}${waOrderBadge(o)}

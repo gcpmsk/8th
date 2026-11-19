@@ -31,6 +31,9 @@ const TV_PROD   = 'sg_mk_products';    // ["Loading","Unloading",...]
 const TV_MAN    = 'sg_tv_manual';      // manual Debtor/Creditor parties
 function tvMob(k){ return (tvJSON(TV_MOB,{})||{})[k]||''; }
 function tvSetMob(k,v){ const m=tvJSON(TV_MOB,{})||{}; if(v) m[k]=v; else delete m[k]; tvSet(TV_MOB,m); }
+const TV_CMOB   = 'sg_call_mobiles';   // { NAMEKEY : "9999999999" } — Call Wala number (AI कॉल); ख़ाली = WhatsApp वाला ही
+function tvCallMob(k){ return (tvJSON(TV_CMOB,{})||{})[k]||tvMob(k); }
+function tvSetCallMob(k,v){ const m=tvJSON(TV_CMOB,{})||{}; if(v) m[k]=v; else delete m[k]; tvSet(TV_CMOB,m); }
 function tvLimit(k){ const l=tvJSON(TV_LIMIT,{})||{}; return tvN(l[k])||2; }
 function tvSetLimit(k,v){ const l=tvJSON(TV_LIMIT,{})||{}; l[k]=v; tvSet(TV_LIMIT,l); }
 
@@ -301,10 +304,12 @@ function tvMobPopup(key){
   const D=tvBuild(); const p=[...D.cred,...D.deb,...D.staff].find(x=>x.key===key)||{name:key};
   popup({ title:'📱 Mobile Number',
     body:`<div class="pp-note"><b>${tvE(p.name)}</b>${p.address?' ('+tvE(p.address)+')':''}</div>
-      <div class="f-row"><label>Mob-</label><input type="tel" id="tv-mb" inputmode="numeric" maxlength="12" value="${tvE(tvMob(key))}" placeholder="10 अंक"></div>`,
+      <div class="f-row"><label>📞 Call Wala</label><input type="tel" id="tv-mbc" inputmode="numeric" maxlength="12" value="${tvE((tvJSON(TV_CMOB,{})||{})[key]||'')}" placeholder="AI कॉल का नंबर (ख़ाली = WhatsApp वाला)"></div>
+      <div class="f-row"><label>💬 WhatsApp Wala</label><input type="tel" id="tv-mb" inputmode="numeric" maxlength="12" value="${tvE(tvMob(key))}" placeholder="Order / रसीद का नंबर — 10 अंक"></div>
+      <div class="pp-note">दोनों नंबर एक ही हों तो सिर्फ़ WhatsApp Wala भर दें</div>`,
     foot:`<span></span><div style="display:flex;gap:8px;"><button class="pp-btn cancel" onclick="closePopup()">Cancel</button><button class="pp-btn save" id="tv-mbs">✓ Save</button></div>`,
     onOpen(bk){ const i=bk.querySelector('#tv-mb'); i.focus();
-      bk.querySelector('#tv-mbs').addEventListener('click',()=>{ tvSetMob(key,i.value.trim()); closePopup(); tvRefresh(); tvRender(); toast('Mobile save ✔'); }); }
+      bk.querySelector('#tv-mbs').addEventListener('click',()=>{ tvSetMob(key,i.value.trim()); tvSetCallMob(key,bk.querySelector('#tv-mbc').value.trim()); closePopup(); tvRefresh(); tvRender(); try{ if(window.cwAfterMob) window.cwAfterMob(); }catch(e){} toast('Mobile save ✔'); }); }
   });
 }
 
@@ -376,7 +381,7 @@ function tvRowsHTML(){
     return `<div class="tvrow ${x.bal>0?'owe':''} ${lim?'lim':''}" data-open="${tvE(x.key)}" data-kind="${kind}">
       <div class="tvsr">${i+1}</div>
       <div class="tvnm"><b>${tvE(x.name)}</b>${x.address?`<i>(${tvE(x.address)})</i>`:''}
-        <span class="tvmb">${x.mob?'mob- '+tvE(x.mob):'<em>mob- —</em>'}</span>
+        <span class="tvmb">${x.mob?'mob- '+tvE(x.mob):'<em>mob- —</em>'}${(tvCallMob(x.key)&&tvCallMob(x.key)!==x.mob)?' · 📞 '+tvE(tvCallMob(x.key)):''}</span>
         <span class="tvtags">${x.openBills>0?`<span class="tg b">${x.openBills} receipt</span>`:''}${lim?`<span class="tg r">LIMIT ${tvLimit(x.key)}</span>`:''}${aged>=7?`<span class="tg o">${aged}d</span>`:''}</span></div>
       <div class="tvdue">${x.bal>0?'₹'+tvF(x.bal):'—'}${x.openBills>1?`<small>${x.openBills} receipt बाक़ी</small>`:''}</div>
       <div class="tvpaid">${x.bal<0?'₹'+tvF(-x.bal):'—'}${x.bal<0?'<small>advance</small>':''}</div>
@@ -415,7 +420,7 @@ function tvProfile(){
   const payOn = TVS.payMode===key;
   return `<div class="tvhead">
       <button class="tvbtn back" id="tv-back">← Back</button>
-      <div class="tvtitle pf"><b>${tvE(p.name)}</b>${p.address?`<i>(${tvE(p.address)})</i>`:''}<span class="pfmob">mob- ${tvE(p.mob||'—')}</span></div>
+      <div class="tvtitle pf"><b>${tvE(p.name)}</b>${p.address?`<i>(${tvE(p.address)})</i>`:''}<span class="pfmob">💬 ${tvE(p.mob||'—')} · 📞 ${tvE(tvCallMob(p.key)||'—')}</span></div>
       ${kind!=='staff'?`<button class="tvbtn ${payOn?'paidon':'paid'}" id="tv-paidmode">${payOn?'🔓 PAID':'💵 PAID'}</button>`:''}
       <button class="tvbtn print" id="tv-print">🖨️ Print</button>
     </div>

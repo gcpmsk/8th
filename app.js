@@ -22,7 +22,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 })();
 
 /* ---------- navigation ---------- */
-const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',tally:'tally-screen',attendance:'attendance-screen',call:'call-screen',setrate:'setrate-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen',changerec:'changerec-screen'};
+const SCREENS={login:'login-screen',home:'home-screen',notebook:'notebook-screen',sbook:'sbook-screen',orderbook:'orderbook-screen',tally:'tally-screen',attendance:'attendance-screen',call:'call-screen',emergency:'emergency-screen',setrate:'setrate-screen',chatai:'chatai-screen',recordbook:'recordbook-screen',recorddates:'recorddates-screen',recordview:'recordview-screen',printhome:'printhome-screen',changerec:'changerec-screen'};
 let go=function(name){
   $$('.screen').forEach(s=>s.classList.remove('active'));
   $('#'+ (SCREENS[name]||SCREENS.home)).classList.add('active');
@@ -32,6 +32,8 @@ let go=function(name){
   if(name==='sbook' && typeof renderSBook==='function') renderSBook();
   if(name==='tally' && typeof window.tvOpen==='function') window.tvOpen();
   if(name==='setrate' && typeof window.srOpen==='function') window.srOpen();
+  if(name==='call' && typeof window.cwOpen==='function') window.cwOpen();
+  if(name==='emergency' && typeof window.emOpen==='function') window.emOpen();
   if(name==='changerec') renderChangeRec();
 }
 /* 🕘 Change Record — पूरे system का date-wise बदलाव record (सिर्फ़ पढ़ने के लिए) */

@@ -843,6 +843,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 .sr-prow .eq b{color:#0b8a4a;font-size:14px;} .sr-prow .m{color:#c0392b;font-weight:900;}
 @media(max-width:640px){ .sr-row{grid-template-columns:22px 1fr auto;} .sr-rates{grid-column:1/-1;} }
 </style>
+<link rel="stylesheet" href="sg-extra.css">
 </head>
 <body>
 <div class="bg-3d" id="bg3d"></div>
@@ -875,9 +876,10 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
     <button class="tile tile-4" data-go="orderbook"><span class="t-ico">🧾</span><span class="t-name">Order Book</span></button>
     <button class="tile tile-9" id="wa-main-btn" aria-label="WhatsApp"><span class="t-ico">💬</span><span class="t-name">WhatsApp <span class="n" hidden>0</span></span></button>
     <button class="tile tile-5" data-go="attendance"><span class="t-ico">🗓️</span><span class="t-name">Attendance</span></button>
-    <button class="tile tile-6" data-go="call"><span class="t-ico">📞</span><span class="t-name">Call</span></button>
+    <button class="tile tile-6" data-go="call"><span class="t-ico">📞</span><span class="t-name">Call Wala</span></button>
     <button class="tile tile-7" data-go="setrate"><span class="t-ico">💰</span><span class="t-name">Set Rate</span></button>
     <button class="tile tile-9" data-go="tally"><span class="t-ico">📊</span><span class="t-name">Tally View</span></button>
+    <button class="tile tile-10" data-go="emergency"><span class="t-ico">🚨</span><span class="t-name">Emergency Wala</span></button>
   </div>
   <button class="chat-ai-btn" data-go="chatai"><span class="ai-dot"></span>💬 CHAT AI</button>
 </div>
@@ -961,7 +963,8 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
   <div class="att-wrap" id="att-wrap"></div>
   <div class="att-actions" id="att-actions" style="justify-content:center;margin-top:14px;"></div>
 </div>
-<div class="screen sub-screen" id="call-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">📞 Call</div></div><div class="placeholder-card"><span class="big-ico">📞</span><h3>Quick Call</h3><p style="margin-bottom:16px;">ज़रूरी नंबर पर call करें</p><a href="tel:9631816666" style="display:inline-block;padding:14px 34px;background:linear-gradient(135deg,#2ecc71,#1e8449);color:#fff;border-radius:14px;font-weight:700;text-decoration:none;font-size:17px;">📞 Office Call</a></div></div>
+<div class="screen sub-screen" id="call-screen"><div id="cw-body"></div></div>
+<div class="screen sub-screen" id="emergency-screen"><div id="em-body"></div></div>
 <div class="screen sub-screen" id="setrate-screen"><div class="sub-head"><button class="back-btn" data-go="home">← Back</button><div class="sub-title">💰 Set Rate</div></div><div id="sr-body" style="width:100%;max-width:1100px;"></div></div>
 <!-- PRINT HOME -->
 <div class="screen sub-screen" id="printhome-screen">
@@ -1016,5 +1019,7 @@ th.today-h{background:linear-gradient(135deg,#f39c12,#d35400)!important;}
 <script src="tally.js"></script>
 <script src="setrate.js"></script>
 <script src="wa-admin.js"></script>
+<script src="call.js"></script>
+<script src="emergency.js"></script>
 </body>
 </html>
