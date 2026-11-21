@@ -135,3 +135,39 @@ test('"कल शाम 4 बजे कॉल करना" → callback_clock/d
   const r = await api({ action: 'enqueue', kind: 'area', items: [{ key: 'MOHAN TRADERS', name: 'Mohan Traders', phone: '9000000004' }] });
   assert.deepEqual([r.added, r.skipped], [0, 1]);
 });
+
+// ---------- Dograh agent files: कॉल हमेशा कटनी चाहिए (End Call तक रास्ता) ----------
+test('Dograh agent files: valid graph, every agent reaches End Call, hook placeholders present', async () => {
+  const files = ['1-outgoing-customer', '2-incoming-all', '3-new-customer-lead', '4-wheat-supplier', '5-owner-stock-alert'];
+  for (const f of files) {
+    const d = JSON.parse(await readFile(new URL(`./dograh/${f}.json`, import.meta.url), 'utf8'));
+    const w = d.workflow_definition, ids = new Set(w.nodes.map(n => n.id));
+    assert.equal(ids.size, w.nodes.length, f + ': node id दोहराई');
+    assert.equal(w.nodes.filter(n => n.type === 'startCall').length, 1, f + ': एक ही Start Call');
+    for (const e of w.edges) { assert.ok(ids.has(e.source) && ids.has(e.target), f + ': edge टूटी'); }
+    const ends = new Set(w.nodes.filter(n => n.type === 'endCall').map(n => n.id));
+    assert.ok(ends.size >= 1, f + ': End Call node नहीं');
+    // हर agent/start node से कम से कम एक edge सीधे End Call पर
+    for (const n of w.nodes.filter(n => n.type === 'agentNode' || n.type === 'startCall')) {
+      const toEnd = w.edges.filter(e => e.source === n.id && ends.has(e.target));
+      assert.ok(toEnd.length >= 1, `${f}: "${n.data.name}" से End Call का रास्ता नहीं`);
+      for (const e of toEnd) assert.match(e.data.condition, /AS SOON AS|as soon as|Do not keep|silent|goodbye|refuses/, f + ': End edge की शर्त ढीली');
+    }
+    for (const n of w.nodes.filter(n => n.type === 'endCall')) assert.match(n.data.prompt, /कॉल अपने-आप कट/, f + ': End prompt');
+    const g = w.nodes.find(n => n.type === 'globalNode');
+    assert.match(g.data.prompt, /कॉल ख़त्म करने का नियम/, f + ': Global में अंत का नियम');
+    const wh = w.nodes.find(n => n.type === 'webhook');
+    assert.ok(wh && wh.data.endpoint_url.includes('REPLACE_HOOK_KEY'), f + ': webhook URL placeholder');
+    assert.ok(/ v2$/.test(d.name), f + ': नाम में v2');
+  }
+});
+
+test('Dograh pre-call fetch (incoming): सही key पर context, ग़लत key पर भी call न रुके', async () => {
+  const bodyIn = { event: 'call_inbound', call_inbound: { agent_id: 20, workflow_run_id: 7, from_number: '+919000000001', to_number: '9429491500' } };
+  const ok = (await one('SELECT cw_hook($1::jsonb) AS o', [JSON.stringify({ q: { k: 'K1' }, b: bodyIn })])).o;
+  assert.equal(ok.call_inbound.initial_context.customer_name, 'Ram Store');
+  assert.equal(ok.initial_context.ptype, 'customer');
+  const bad = (await one('SELECT cw_hook($1::jsonb) AS o', [JSON.stringify({ q: { k: 'zzz' }, b: bodyIn })])).o;
+  assert.equal(bad.ok, false);                       // JSON ही लौटता है — Dograh call चालू रखता है
+  assert.equal(bad.call_inbound, undefined);
+});

@@ -110,3 +110,46 @@ SELECT * FROM cw_rateinq ORDER BY id DESC;          -- rate inquiry
 SELECT em_stock();                                  -- live stock
 SELECT * FROM cw_state;                             -- stop / heartbeat
 ```
+
+---
+
+## 🔧 v2 अपडेट (21 Nov) — Call कटना + Incoming नहीं लगना
+
+### A. AI कॉल क्यों नहीं काटता था, अब क्या बदला
+Dograh में कॉल तभी कटती है जब agent **End Call node** तक पहुँचे, और वहाँ पहुँचाने वाली "edge की शर्त" LLM को पूरी होती दिखे.
+पुरानी शर्त ("purpose complete") ढीली थी, इसलिए AI बात ख़त्म होने के बाद भी नए सवाल पूछता रहता था.
+v2 फ़ाइलों में (नाम के आगे **v2**):
+- हर agent से End Call की edge की शर्त सख़्त: काम पूरा / "ठीक है, धन्यवाद, bye" / मना / चुप्पी → तुरंत End Call.
+- Global Node में "कॉल ख़त्म करने का नियम": अलविदा सिर्फ़ End Call स्टेज बोलेगा, "और कुछ चाहिए?" सिर्फ़ एक बार.
+- End Call prompt: सिर्फ़ एक छोटा अलविदा-वाक्य, फिर चुप — कॉल अपने-आप कट जाती है.
+- Owner Stock Alert: एक बार पढ़कर "ओके / ठीक है / चुप्पी" पर कटेगा.
+
+**Dograh में यह एक बार हाथ से भी लगाएँ (हर agent: ⚙️ Settings / Configurations):**
+
+| Setting | मान | क्यों |
+|---|---|---|
+| Max Call Duration | 180 (3 मिनट; alert agent में 90) | AI अटक भी जाए तो इतने पर कॉल अपने-आप कटे |
+| Max User Idle Timeout | 8 | सामने वाला चुप रहे तो 8 सेकंड बाद कटे |
+
+### B. v2 कैसे लगाएँ (दो में से एक तरीक़ा)
+**तरीक़ा 1 — सबसे आसान (नए agent):** App → Call Wala → ⚙️ Settings से पाँचों नई file download करें (Hook key अपने-आप भरी आती है) → Dograh → **Upload Agent Definition** → पुराने 5 agent **Archive** करें →
+नए agents में Model/Voice/Transcriber चुनकर **Publish** → नए **Agent UUID + ID** App Settings में भरें → Telephony → Phone number → **Inbound workflow** फिर से `SG - Incoming (Call Wala) v2` चुनें. (यह आख़िरी step भूलने पर Incoming नहीं लगेगा.)
+
+**तरीक़ा 2 — पुराने ही agent update (ID/UUID वही रहते हैं):** `scripts/dograh-update.sh` देखें (ऊपर comment में चलाने का तरीक़ा). इसमें Model/Voice setting नहीं छूती.
+
+### C. मोबाइल से 9429491500 पर कॉल करने पर AI नहीं उठता — जाँच (ऊपर से नीचे)
+कॉल Dograh तक पहुँचने से पहले ये 4 जगह से गुज़रती है. जहाँ टूटे वहीं ठीक करें:
+
+| # | जाँच | कैसे देखें | ठीक कैसे करें |
+|---|---|---|---|
+| 1 | Voicelink से आपके Asterisk तक कॉल आ रही है? | Asterisk CLI: `asterisk -rvvv` खोलकर मोबाइल से कॉल करें — `INVITE` / "Incoming call" की line आनी चाहिए | नहीं आती → Voicelink panel में DID 9429491500 का destination/IP आपका Asterisk सर्वर रखें, सर्वर पर SIP port (5060/udp) खुला हो |
+| 2 | Asterisk का dialplan इस नंबर को Stasis में भेजता है? | CLI में `dialplan show from-external` | `exten => _X.,1,Stasis(<Dograh का Stasis App Name>)` हो; नाम Dograh → Telephony → Voicelink-Asterisk config पर दिखता है. बदलने पर `dialplan reload` |
+| 3 | Dograh में यही नंबर Phone number की तरह जुड़ा है, और Inbound workflow लगा है? | Telephony → Voicelink-Asterisk → Phone numbers | नंबर वैसा ही लिखें जैसा dialplan में `${EXTEN}` आता है (जैसे `9429491500` या `09429491500`; CLI की `Incoming call to ...` line में देखें). Inbound workflow = `SG - Incoming (Call Wala) v2`, Save |
+| 4 | Dograh के log में क्या दिखा? | सर्वर पर `docker compose logs --tail=100 api ari-manager` | "no matching phone number registered" → #3 का नंबर-format; "no inbound_workflow_id assigned" → inbound workflow चुनें; "Workflow not found" → archive किया हुआ agent लगा है, नया चुनें |
+
+**एक और ज़रूरी बात:** आउटगोइंग (App से) चल रही है, यानी Asterisk↔Dograh ARI जुड़ाव ठीक है. इसलिए गड़बड़ी लगभग हमेशा #1, #2 या #3 में होती है — Dograh code में नहीं.
+Incoming agent की Pre-Call Data Fetch (Hook key) ग़लत हो तो भी कॉल **चलती रहती है**, बस AI नाम नहीं जानता — इससे कॉल बंद नहीं होती.
+
+### D. Postgres में `Error in query: 47`
+Adminer फ़ाइल के हर `;` को अलग query गिनता है. आख़िर में सिर्फ़ comment बचा था, उसे वह 47वीं (ख़ाली) query समझकर "Unknown error" दिखाता था.
+**असली SQL पहले ही सब सफल थीं** (हरे "Query executed OK" और `COMMIT`). v2 की `call-schema.sql` में यह अंतिम comment `COMMIT` के पहले कर दिया है — अब error नहीं आएगा. पुरानी चलाई SQL दोबारा चलाने की ज़रूरत नहीं, पर चला दें तो भी सुरक्षित है.

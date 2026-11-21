@@ -731,14 +731,11 @@ BEGIN
   RETURN jsonb_build_object('ok', false, 'error', 'unknown view/action');
 END $$;
 
-COMMIT;
-
--- =====================================================================
--- देखने के काम की SQL:
+-- देखने के काम की SQL (बाद में हाथ से चलाने के लिए):
 --   SELECT cw_tick();                                   -- n8n जो चलाता है (हाथ से चलाने पर एक call लग सकती है!)
 --   SELECT cw_api('{"view":"dash"}');                   -- live monitor
 --   SELECT em_stock();                                  -- live stock
 --   SELECT * FROM cw_queue ORDER BY id DESC LIMIT 50;   -- कतार
 --   SELECT * FROM cw_calls ORDER BY id DESC LIMIT 50;   -- call history
 --   SELECT * FROM cw_rateinq ORDER BY id DESC;          -- rate inquiry
--- =====================================================================
+COMMIT;
